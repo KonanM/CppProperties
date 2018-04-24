@@ -215,7 +215,7 @@ namespace pd
 					subject->invoke();
 			}
 			else
-				static_assert(false, "The value type doesn't match the property descriptor type.");
+				static_assert(false, "The type T of the property descriptor doesn't match the type of the passed value.");
 		}
 
 		template<typename T>

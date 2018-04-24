@@ -17,21 +17,22 @@ public:
 	}
 };
 
-const pd::PropertyDescriptor<int> IntPPPD(0);
+const pd::PropertyDescriptor<std::string> StringResultPD("");
 TEST(CppPropertiesTest, TestSimpleProxyProperty)
 {
 	
 	pd::PropertyContainer<> container;
 	auto intStringLambda = [](int i, std::string s)
-	{ return s + ": " + std::to_string(i);
+	{ 
+		return s + ": " + std::to_string(i);
 	};
 	auto proxyP = pd::makeProxyProperty(intStringLambda, IntPD, StringPD);
-	container.setProperty(IntPPPD, std::move(proxyP));
-	ASSERT_TRUE(container.getProperty(IntPPPD) == IntPPPD.getDefaultValue());
+	container.setProperty(StringResultPD, std::move(proxyP));
+	ASSERT_TRUE(container.getProperty(StringResultPD) == intStringLambda(IntPD.getDefaultValue(), StringPD.getDefaultValue()));
 	container.setProperty(IntPD, 20);
-	ASSERT_TRUE(container.getProperty(IntPPPD) == 20);
+	ASSERT_TRUE(container.getProperty(StringResultPD) == intStringLambda(20, StringPD.getDefaultValue()));
 	container.setProperty(StringPD, "something");
-	ASSERT_TRUE(container.getProperty(IntPPPD) == 20);
+	ASSERT_TRUE(container.getProperty(StringResultPD) == intStringLambda(20, "something"));
 }
 
 TEST(CppPropertiesTest, TestCoreFunctionality)
