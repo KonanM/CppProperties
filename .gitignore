@@ -298,7 +298,12 @@ __pycache__/
 *.odx.cs
 *.xsd.cs
 
-##### cmake gitignore
+# Visual Studio own ignores
+*.vcxproj
+*.vcxproj.filters
+*.sln
+
+###################### cmake gitignore
 CMakeCache.txt
 CMakeFiles
 CMakeScripts
