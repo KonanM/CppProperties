@@ -36,21 +36,35 @@
 #include <map>
 #include <unordered_map>
 
+//TODO: connect signals arguments correctly
+
 namespace pd
 {
 	//forward declarations
 	template<typename T>
 	class ProxyProperty;
 	class ProxyPropertyBase;
-	class Subject;
+	template <typename... Args>
+	class Signal;
 	//###########################################################################
 	//#
 	//#                        PropertyContainer                               
 	//#
 	//############################################################################
 
+	template<typename>
+	struct PMF_traits {
+		using member_type = void;
+		using class_type = void;
+	};
+
+	template<class T, class U>
+	struct PMF_traits<U T::*> {
+		using member_type = typename U;
+		using class_type = typename T;
+	};
 	
-	template<typename SubjectT = Subject, template<typename ...> class MapT = std::unordered_map>
+	template<template<typename ...> class SignalT = Signal, template<typename ...> class MapT = std::unordered_map>
 	class PropertyContainer
 	{
 	public:
@@ -86,7 +100,13 @@ namespace pd
 			auto& container = *containerIt->second;
 			return container.getProxyPropertyInternal(pd);
 		}
-		//use setProperty to 
+		//          *
+		//		  /   \
+		//		 set   *
+		//		/   \
+		//	  ...   ...
+		//	   visHere    
+		//only at levels below where we called setProperty, the value of the property will be visible
 		template<typename T, typename U>
 		void setProperty(const PropertyDescriptor<T>& pd, U && value)
 		{
@@ -95,30 +115,18 @@ namespace pd
 			//for the case that the same property has been set at a lower (parent) level
 			//we have to update the existing subjects before changning the property
 			//otherwise the wrong subjects will be updated
-			updateAllSubjects(pd);
+			updateAllSignals(pd);
 
 			auto parentContainer = m_parent ? m_parent->getOwningPropertyContainer(pd) : nullptr;
 			if (parentContainer)
-				parentContainer->updateAllSubjects(pd);
+				parentContainer->updateAllSignals(pd);
 			changePropertyInternal(pd, std::forward<U>(value));
 		}
-		//interface to check if a property has been set
-		//if getting the default value, when no property is set is not intended use case
-		//use this function to check for it first
-		template<typename T>
-		bool hasProperty(const PropertyDescriptor<T>& pd) const
-		{
-			return m_toContainer.find(&pd) != end(m_toContainer);
-		}
-		//this will change the current property, but only if it's set somewhere
-		template<typename T, typename U>
-		void changeProperty(const PropertyDescriptor<T>& pd, U&& value)
-		{
-			//find the correct container where we have to change the property
-			if (auto containerIT = m_toContainer.find(&pd); containerIT != end(m_toContainer))
-				return containerIT->second->changePropertyInternal(pd, std::forward<U>(value));
-		}
 
+		//this is the removal counterpart of the setProperty interface
+		//be aware that this only removes the property if it's set at the current level
+		//if it's removed from the current level it might be that the property is still visible
+		//because it was set at a parent level before
 		template<typename T>
 		void removeProperty(const PropertyDescriptor<T>& pd)
 		{
@@ -128,20 +136,79 @@ namespace pd
 			return containerIT->second->removePropertyInternal(pd);
 		}
 
-		template<typename T, typename Observer>
-		void observeProperty(const PropertyDescriptor<T>& pd, Observer&& observer)
-		{
-			m_toSubject[&pd].addObserver(std::forward<Observer>(observer));
-		}
+		//interface to check if a property has been set
+		//if getting the default value, when no property is set is not intended use case
+		//use this function to check for it first
 		template<typename T>
-		void mapPropertyToMember(const PropertyDescriptor<T>& pd, T& memberVariable)
+		bool hasProperty(const PropertyDescriptor<T>& pd) const
 		{
-			observeProperty(pd, [&memberVariable](auto newValue)
+			return m_toContainer.find(&pd) != end(m_toContainer);
+		}
+
+		//this will change the current property at the level where it was set
+		//if the property wasn't set nothing happens
+		template<typename T, typename U>
+		void changeProperty(const PropertyDescriptor<T>& pd, U&& value)
+		{
+			//find the correct container where we have to change the property
+			if (auto containerIT = m_toContainer.find(&pd); containerIT != end(m_toContainer))
+				return containerIT->second->changePropertyInternal(pd, std::forward<U>(value));
+		}
+		//we can connect a property to a function/lambda (or member function ptr)
+		//whenever the property changes the function will get called
+		//you can either connect to function without argument or one that is callable
+		//by the type of the property
+		template<typename T, typename FuncT>
+		void connect(const PropertyDescriptor<T>& pd, FuncT&& func)
+		{
+			using PMF = PMF_traits<FuncT>;
+			//case 1: function object callable with argument of type T
+			if constexpr (std::is_invocable_v<FuncT, T>)
+			{
+				auto& typedSignal = m_toTypedSignal[&pd];
+				if (!typedSignal.has_value())
+					typedSignal.emplace<SignalT<T>>();
+				std::any_cast<SignalT<T>&>(typedSignal).connect(std::forward<FuncT>(func));
+			}
+			//case 2: pointer of member function with argument of type T
+			else if constexpr (std::is_invocable_v<typename PMF::member_type, T>)
+			{
+				auto& typedSignal = m_toTypedSignal[&pd];
+				if (!typedSignal.has_value())
+					typedSignal.emplace<SignalT<T>>();
+				std::any_cast<SignalT<T>&>(typedSignal).connect(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+			}
+			//case 3: pointer of member function with no argument
+			else if constexpr (std::is_function_v<typename PMF::member_type>)
+			{
+				m_toVoidSignal[&pd].connect(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+			}
+			//case 4: callable function object with no argument
+			else
+			{
+				m_toVoidSignal[&pd].connect(std::forward<FuncT>(func));
+			}
+			
+		}
+
+		//for now we can only disconnect all the functions connect attached to a certain property
+		template<typename T>
+		void disconnect(const PropertyDescriptor<T>& pd)
+		{
+			m_toVoidSignal[&pd].disconnect();
+			if (auto& typedSignal = m_toTypedSignal[&pd]; typedSignals.has_value())
+				std::any_cast<SignalT<T>&>(typedSignal).disconnect();
+
+		}
+
+		template<typename T>
+		void connectToMember(const PropertyDescriptor<T>& pd, T& memberVariable)
+		{
+			connect(pd, [&memberVariable](auto& newValue)
 			{
 				memberVariable = newValue;
 			});
 		}
-
 
 		PropertyContainer* addChildContainer(std::unique_ptr<PropertyContainer> propertyContainer)
 		{
@@ -190,6 +257,7 @@ namespace pd
 				return nullptr;
 			return static_cast<ProxyProperty<T>*>(propertyData.proxyProperty);
 		}
+
 		template<typename T, typename U>
 		void changePropertyInternal(const PropertyDescriptor<T>& pd, U && value)
 		{
@@ -202,8 +270,8 @@ namespace pd
 					propertyData.value = std::make_any<T>(std::forward<U>(value));
 					propertyData.proxyProperty = nullptr;
 					//invoke all observers
-					for (auto& subject : propertyData.subjects)
-						subject->invoke();
+					for (auto& subject : propertyData.signals)
+						subject->emit();
 				}
 			}
 			//in this case we store a proxy property that can return a value of the given type
@@ -211,39 +279,39 @@ namespace pd
 			{
 				propertyData.proxyProperty = value.get();
 				addChildContainer(std::move(value));
-				for (auto& subject : propertyData.subjects)
-					subject->invoke();
+				for (auto& subject : propertyData.signals)
+					subject->emit();
 			}
 			else
 				static_assert(false, "The type T of the property descriptor doesn't match the type of the passed value.");
 		}
 
 		template<typename T>
-		void updateAllSubjects(const PropertyDescriptor<T>& pd)
+		void updateAllSignals(const PropertyDescriptor<T>& pd)
 		{
 			auto& propertyData = m_propertyData[&pd];
-			propertyData.subjects.clear();
-			getAllSubjects(pd, propertyData.subjects);
+			propertyData.signals.clear();
+			getAllSignals(pd, propertyData.signals);
 		}
 
 		template<typename T>
-		void addSubjects(const PropertyDescriptor<T>& pd, std::vector<Subject*>& subjects)
+		void addSignals(const PropertyDescriptor<T>& pd, std::vector<SignalT<>*>& signals)
 		{
 			auto& propertyData = m_propertyData[&pd];
-			std::copy(begin(subjects), end(subjects), std::back_inserter(propertyData.subjects));
+			std::copy(begin(signals), end(signals), std::back_inserter(propertyData.signals));
 		}
 
 		template<typename T>
-		void getAllSubjects(const PropertyDescriptor<T>& pd, std::vector<Subject*>& subjects)
+		void getAllSignals(const PropertyDescriptor<T>& pd, std::vector<SignalT<>*>& signals)
 		{
 			//add own subject
-			if (auto subjectIt = m_toSubject.find(&pd); subjectIt != end(m_toSubject))
-				subjects.push_back(&(subjectIt->second));
+			if (auto subjectIt = m_toVoidSignal.find(&pd); subjectIt != end(m_toVoidSignal))
+				signals.push_back(&(subjectIt->second));
 
-			//add the subjects of all children unless they own property data themselves
+			//add the signals of all children unless they own property data themselves
 			for (auto& children : m_children)
 				if (!children->ownsPropertyDataInternal(pd))
-					children->getAllSubjects(pd, subjects);
+					children->getAllSignals(pd, signals);
 		}
 
 		void setParentContainerForProperty(const PropertyDescriptorBase& pd, PropertyContainer* container)
@@ -265,23 +333,23 @@ namespace pd
 		{
 			auto& propertyData = m_propertyData[&pd];
 			//copy all the subject ptrs
-			auto oldSubjects = propertyData.subjects;
+			auto oldSubjects = propertyData.signals;
 
 			T oldValue = getProperty(pd);
 			//we have to update all children and tell it which is the correct owning property container
 			auto newContainer = m_parent ? m_parent->getOwningPropertyContainer(pd) : nullptr;
 			setParentContainerForProperty(pd, newContainer);
-			//we also have to add all the subjects from this level to the owning container
+			//we also have to add all the signals from this level to the owning container
 			if (newContainer)
-				newContainer->addSubjects(pd, oldSubjects);
+				newContainer->addSignals(pd, oldSubjects);
 			//now we remove the property data
 			m_propertyData.erase(&pd);
-			//notify all old subjects (if necessary)
+			//notify all old signals (if necessary)
 			const bool valueChanged = (newContainer ? oldValue != newContainer->getProperty(pd) : oldValue != pd.getDefaultValue());
 			if (valueChanged)
 			{
 				for (auto& subject : oldSubjects)
-					subject->invoke();
+					subject->emit();
 			}
 		}
 
@@ -318,15 +386,29 @@ namespace pd
 		PropertyContainer* m_parent = nullptr;
 
 		MapT<KeyT, PropertyContainer*> m_toContainer;
-		MapT<KeyT, SubjectT> m_toSubject;
+		MapT<KeyT, SignalT<>> m_toVoidSignal;
+		//not sure if using std::any is the correct choice here
+		//I could also write a virtual base class for the SignalT
+		//and use a unique_ptr of that, but that seems worse
+		MapT<KeyT, std::any> m_toTypedSignal;
 		struct PropertyData
 		{
 			std::any value;
 			ProxyPropertyBase* proxyProperty = nullptr;
-			std::vector<SubjectT*> subjects;
+			std::vector<SignalT<>*> signals;
+			std::vector<std::any*> typedSignal;
 		};
 		MapT<KeyT, PropertyData> m_propertyData;
 	};
+
+	//###########################################################################
+	//#
+	//#                        PropertyContainer CTAD                             
+	//#
+	//############################################################################
+
+	template<template<typename ...> class SignalT, template<typename ...> class MapT>
+	PropertyContainer() -> PropertyContainer<SignalT, MapT>;
 
 	//###########################################################################
 	//#
@@ -347,7 +429,7 @@ namespace pd
 	{
 	public:
 		using type = T;
-		virtual T get() = 0;
+		virtual T get() const = 0;
 	};
 
 	//###########################################################################
@@ -358,16 +440,17 @@ namespace pd
 
 	//now here starts the fun / interesting part about ProxyProperties
 	//you can use them so combine several properties into a new one, by providing a lambda
-	//this can also act as a simple converter, e.g. perfoming a cast on an imput
+	//this can also act as a simple converter, e.g. perfoming a cast on an input
 	//super simple example
 	//auto intStringLambda = [](int i, std::string s)
 	//{ return s + ": " + std::to_string(i);
 	//};
 	//container.setProperty(CombinedStrPD, pd::makeProxyProperty(intStringLambda, IntPD, StringPD));
 
-	template<typename FuncT, typename ... PropertDescriptors, typename ResultT = std::invoke_result_t<FuncT, PropertDescriptors::type...>>
+	template<typename FuncT, typename ... PropertDescriptors>
 	auto makeProxyProperty(FuncT&& func, const PropertDescriptors& ... pds)
 	{
+		using ResultT = typename std::invoke_result_t<FuncT, PropertDescriptors::type...>;
 		return std::make_unique<ConvertingProxyProperty<ResultT, FuncT, PropertDescriptors...>>(std::forward<FuncT>(func), pds...);
 	}
 
@@ -380,26 +463,27 @@ namespace pd
 			, m_func(std::move(funcT))
 			, m_pds(std::make_tuple(std::addressof(pds)...))
 		{
-		};
+		}
 		//implement contructor in the base classes later
 		//ConvertingProxyProperty(const ConvertingProxyProperty&) = default;
 		//ConvertingProxyProperty(ConvertingProxyProperty&&) = default;
 
 		//ConvertingProxyProperty(const ConvertingProxyProperty&) = default;
-		virtual T get() override
+		virtual T get() const override
 		{
 			//all the property descriptors are packed in a tuple, therefore we need std::apply to unpack them
 			return std::apply([&](const auto& pds...)
 			{
-				//now that we call getProperty for every property descriptor and invoke the function with the result 
+				//now we call getProperty for every property descriptor and invoke the function with the result 
 				return std::invoke(m_func, getProperty(*pds)...);
 			}
 			, m_pds);
 		}
+
 		virtual ConvertingProxyProperty* clone() override
 		{
 			return nullptr;
-		};
+		}
 	protected:
 		FuncT m_func;
 		std::tuple<const PropertDescriptors*...> m_pds;
@@ -412,33 +496,52 @@ namespace pd
 	//############################################################################
 
 
-	//super simple subject implementation
-	//I think you should probably use your own subject/observer or signal/slot
-	//implementation, since this basically just provides 
-	class Subject
-	{
+	//super simple signal implementation
+
+	template <typename... Args>
+	class Signal {
+
 	public:
-		void invoke() const
-		{
-			for (const auto& observer : m_observers)
-				observer();
-			m_hasChanged = false;
+
+		Signal() = default;
+
+		// connects a member function to this Signal
+		template <typename T>
+		void connect(T *inst, void (T::*func)(Args...)) {
+			connect([inst, func](Args... args) {
+				(inst->*func)(args...);
+			});
 		}
-		template<typename Observer>
-		void addObserver(Observer&& observer)
-		{
-			m_observers.emplace_back(std::forward<Observer>(observer));
+
+		// connects a const member function to this Signal
+		template <typename T>
+		void connect(T *inst, void (T::*func)(Args...) const) {
+			connect([inst, func](Args... args) {
+				(inst->*func)(args...);
+			});
 		}
-		void setChanged()
-		{
-			m_hasChanged = true;
+
+		// connects a std::function to the signal. The returned
+		// value can be used to disconnect the function again
+		
+		template<typename FuncT>
+		void connect(FuncT&& slot) {
+			m_slots.emplace_back(std::forward<FuncT>(slot));
 		}
-		bool hasChanged() const
-		{
-			return m_hasChanged;
+
+		// disconnects all previously connected functions
+		void disconnect() {
+			m_slots.clear();
 		}
-	protected:
-		std::vector<std::function<void()>> m_observers;
-		mutable bool m_hasChanged;
+
+		// calls all connected functions
+		void emit(Args... p) const {
+			for (auto& slot : m_slots) {
+				slot(p...);
+			}
+		}
+
+	private:
+		std::vector<std::function<void(Args...)>> m_slots;
 	};
 }

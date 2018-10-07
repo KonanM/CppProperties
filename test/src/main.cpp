@@ -7,14 +7,24 @@ pd::PropertyDescriptor<int*> IntPtrPD(nullptr);
 class IntPP : public pd::ProxyProperty<int>
 {
 public:
-	int get() override
+	int get() const final
 	{
 		return 42;
+	}
+	void dirtyFunc()
+	{
+		isDirty = true;
+	}
+	void dirtyIntFunc(int i)
+	{
+		dirtyInt = i;
 	}
 	IntPP* clone() override
 	{
 		return new IntPP();
 	}
+	bool isDirty = false;
+	int dirtyInt = 0;
 };
 
 const pd::PropertyDescriptor<std::string> StringResultPD("");
@@ -94,17 +104,17 @@ TEST(CppPropertiesTest, TestHierarchies)
 
 TEST(CppPropertiesTest, TestSubjectObserver)
 {
-	pd::PropertyContainer<> rootContainer;
+	pd::PropertyContainer rootContainer;
 	int observerFuncCalledCount = 0;
 	auto observerFunc = [&observerFuncCalledCount]() { observerFuncCalledCount++; };
-	rootContainer.observeProperty(IntPD, observerFunc);
+	rootContainer.connect(IntPD, observerFunc);
 	rootContainer.setProperty(IntPD, 5);
 	ASSERT_TRUE(observerFuncCalledCount == 1);
 	rootContainer.changeProperty(IntPD, 6);
 	ASSERT_TRUE(observerFuncCalledCount == 2);
 	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainer<>>());
 	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainer<>>());
-	containerA1->observeProperty(IntPD, observerFunc);
+	containerA1->connect(IntPD, observerFunc);
 	containerA1->setProperty(IntPD, 10);
 	containerA1->removeProperty(IntPD);
 	ASSERT_TRUE(observerFuncCalledCount == 4);
@@ -114,6 +124,11 @@ TEST(CppPropertiesTest, TestSubjectObserver)
 	//the value doesn't change, so we will not trigger an update
 	rootContainer.removeProperty(IntPD);
 	ASSERT_TRUE(observerFuncCalledCount == 6);
+
+	auto intProxyProperty = std::make_unique<IntPP>();
+	intProxyProperty->connect(IntPD, &IntPP::dirtyFunc);
+	intProxyProperty->connect(IntPD, &IntPP::dirtyIntFunc);
+	intProxyProperty->connect(IntPD, [](int i) {});
 }
 
 

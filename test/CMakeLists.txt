@@ -25,3 +25,6 @@ add_subdirectory(${CMAKE_BINARY_DIR}/googletest-src
 add_executable(CppProperties_test src/main.cpp)
 target_compile_features(CppProperties_test PRIVATE cxx_std_17)
 target_link_libraries(CppProperties_test gtest_main CppProperties::cppproperties)
+
+enable_testing()
+add_test(CppProperties_test CppProperties_test)
