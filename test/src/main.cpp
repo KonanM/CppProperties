@@ -17,7 +17,7 @@ public:
 	}
 	void dirtyIntFunc(int i)
 	{
-		dirtyInt = i;
+		dirtyInt+=i;
 	}
 	IntPP* clone() override
 	{
@@ -102,6 +102,11 @@ TEST(CppPropertiesTest, TestHierarchies)
 	ASSERT_TRUE(newA2Value == 42);
 }
 
+struct TestStruct
+{
+	void func() { std::cout << "Hello World!"; };
+};
+
 TEST(CppPropertiesTest, TestSubjectObserver)
 {
 	pd::PropertyContainer rootContainer;
@@ -124,13 +129,20 @@ TEST(CppPropertiesTest, TestSubjectObserver)
 	//the value doesn't change, so we will not trigger an update
 	rootContainer.removeProperty(IntPD);
 	ASSERT_TRUE(observerFuncCalledCount == 6);
-
-	auto intProxyProperty = std::make_unique<IntPP>();
-	intProxyProperty->connect(IntPD, &IntPP::dirtyFunc);
-	intProxyProperty->connect(IntPD, &IntPP::dirtyIntFunc);
-	intProxyProperty->connect(IntPD, [](int i) {});
 }
 
+TEST(CppPropertiesTest, TestPMFOnlyAddedOnce)
+{
+	IntPP rootContainer;
+	rootContainer.setProperty(IntPD, 0);
+	rootContainer.connect(IntPD, &IntPP::dirtyIntFunc);
+	rootContainer.connect(IntPD, &IntPP::dirtyIntFunc);
+	rootContainer.connect(IntPD, &IntPP::dirtyIntFunc);
+	rootContainer.changeProperty(IntPD, 1);
+	ASSERT_TRUE(rootContainer.dirtyInt == 1);
+	rootContainer.changeProperty(IntPD, 2);
+	ASSERT_TRUE(rootContainer.dirtyInt == 3);
+}
 
 
 int main(int argc, char **argv)

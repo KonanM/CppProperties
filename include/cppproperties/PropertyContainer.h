@@ -27,6 +27,8 @@
 
 #include <any>
 #include <type_traits>
+#include <typeinfo>
+#include <typeindex>
 #include <utility>
 #include <tuple>
 #include <stddef.h>
@@ -162,49 +164,62 @@ namespace pd
 		void connect(const PropertyDescriptor<T>& pd, FuncT&& func)
 		{
 			using PMF = PMF_traits<FuncT>;
+			auto& anySignal = m_toTypedSignal[&pd];
+			if (!anySignal.has_value())
+				anySignal.emplace<SignalT<T>>();
+
+			SignalT<T>& typedSignal = std::any_cast<SignalT<T>&>(anySignal);
 			//case 1: function object callable with argument of type T
 			if constexpr (std::is_invocable_v<FuncT, T>)
 			{
-				auto& typedSignal = m_toTypedSignal[&pd];
-				if (!typedSignal.has_value())
-					typedSignal.emplace<SignalT<T>>();
-				std::any_cast<SignalT<T>&>(typedSignal).connect(std::forward<FuncT>(func));
+				typedSignal.connect(std::forward<FuncT>(func));
 			}
 			//case 2: pointer of member function with argument of type T
 			else if constexpr (std::is_invocable_v<typename PMF::member_type, T>)
 			{
-				auto& typedSignal = m_toTypedSignal[&pd];
-				if (!typedSignal.has_value())
-					typedSignal.emplace<SignalT<T>>();
-				std::any_cast<SignalT<T>&>(typedSignal).connect(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+				//this is used to be able to make sure we don't add the same PMF twice
+				if (auto it = m_PMF_IDs.find(std::type_index(typeid(FuncT))); it != end(m_PMF_IDs))
+					return;
+				m_PMF_IDs.insert(std::type_index(typeid(FuncT)));
+
+				typedSignal.connect(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
 			}
 			//case 3: pointer of member function with no argument
+			//this should be used if we want multiple properties to trigger the same method
+			//e.g. we have to recalulate something when any of the properties the result depends on changes
 			else if constexpr (std::is_function_v<typename PMF::member_type>)
 			{
-				m_toVoidSignal[&pd].connect(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+				typedSignal.connect([inst = static_cast<typename PMF::class_type*>(this), func](const T&){ (inst->*func)(); });
 			}
 			//case 4: callable function object with no argument
+			else if constexpr (std::is_invocable_v<FuncT>)
+			{
+				typedSignal.connect([f = std::forward<FuncT>(func)](const T&) { f();});
+			}
 			else
 			{
-				m_toVoidSignal[&pd].connect(std::forward<FuncT>(func));
+				static_assert(false,  "Argument is not a valid callable functor."
+									  "Argument should be convertible to std::function<void()> or std::function<void(T)>");
 			}
-			
+			//TODO: add signal to property owner
+
+			auto containerIt = m_toContainer.find(&pd);
+			if(containerIt != end(m_toContainer))
+				containerIt->second->addSignal(pd, &anySignal);
 		}
 
 		//for now we can only disconnect all the functions connect attached to a certain property
 		template<typename T>
 		void disconnect(const PropertyDescriptor<T>& pd)
 		{
-			m_toVoidSignal[&pd].disconnect();
 			if (auto& typedSignal = m_toTypedSignal[&pd]; typedSignals.has_value())
 				std::any_cast<SignalT<T>&>(typedSignal).disconnect();
-
 		}
 
 		template<typename T>
 		void connectToMember(const PropertyDescriptor<T>& pd, T& memberVariable)
 		{
-			connect(pd, [&memberVariable](auto& newValue)
+			connect(pd, [&memberVariable](const T& newValue)
 			{
 				memberVariable = newValue;
 			});
@@ -271,7 +286,7 @@ namespace pd
 					propertyData.proxyProperty = nullptr;
 					//invoke all observers
 					for (auto& subject : propertyData.signals)
-						subject->emit();
+						std::any_cast<SignalT<T>&>(*subject).emit(std::any_cast<T&>(propertyData.value));
 				}
 			}
 			//in this case we store a proxy property that can return a value of the given type
@@ -279,8 +294,9 @@ namespace pd
 			{
 				propertyData.proxyProperty = value.get();
 				addChildContainer(std::move(value));
+				const auto newValue = static_cast<ProxyProperty<T>*>(propertyData.proxyProperty)->get();
 				for (auto& subject : propertyData.signals)
-					subject->emit();
+					std::any_cast<SignalT<T>&>(*subject).emit(newValue);
 			}
 			else
 				static_assert(false, "The type T of the property descriptor doesn't match the type of the passed value.");
@@ -294,18 +310,28 @@ namespace pd
 			getAllSignals(pd, propertyData.signals);
 		}
 
+
 		template<typename T>
-		void addSignals(const PropertyDescriptor<T>& pd, std::vector<SignalT<>*>& signals)
+		void addSignal(const PropertyDescriptor<T>& pd, std::any* signal)
+		{
+			auto& propertyData = m_propertyData[&pd];
+			//TODO: check if this is needed or can be avoided
+			if(std::find(begin(propertyData.signals), end(propertyData.signals), signal) != end(propertyData.signals))
+				propertyData.signals.emplace_back(signal);
+		}
+
+		template<typename T>
+		void addSignals(const PropertyDescriptor<T>& pd, std::vector<std::any*>& signals)
 		{
 			auto& propertyData = m_propertyData[&pd];
 			std::copy(begin(signals), end(signals), std::back_inserter(propertyData.signals));
 		}
 
 		template<typename T>
-		void getAllSignals(const PropertyDescriptor<T>& pd, std::vector<SignalT<>*>& signals)
+		void getAllSignals(const PropertyDescriptor<T>& pd, std::vector<std::any*>& signals)
 		{
 			//add own subject
-			if (auto subjectIt = m_toVoidSignal.find(&pd); subjectIt != end(m_toVoidSignal))
+			if (auto subjectIt = m_toTypedSignal.find(&pd); subjectIt != end(m_toTypedSignal))
 				signals.push_back(&(subjectIt->second));
 
 			//add the signals of all children unless they own property data themselves
@@ -345,11 +371,14 @@ namespace pd
 			//now we remove the property data
 			m_propertyData.erase(&pd);
 			//notify all old signals (if necessary)
-			const bool valueChanged = (newContainer ? oldValue != newContainer->getProperty(pd) : oldValue != pd.getDefaultValue());
-			if (valueChanged)
+			if (newContainer)
 			{
-				for (auto& subject : oldSubjects)
-					subject->emit();
+				auto newValue = newContainer->getProperty(pd);
+				if (newValue != oldValue)
+				{
+					for (auto* subject : oldSubjects)
+						std::any_cast<SignalT<T>&>(*subject).emit(newValue);
+				}
 			}
 		}
 
@@ -386,17 +415,20 @@ namespace pd
 		PropertyContainer* m_parent = nullptr;
 
 		MapT<KeyT, PropertyContainer*> m_toContainer;
-		MapT<KeyT, SignalT<>> m_toVoidSignal;
 		//not sure if using std::any is the correct choice here
 		//I could also write a virtual base class for the SignalT
-		//and use a unique_ptr of that, but that seems worse
+		//and use a unique_ptr of that, but then I won't be able to use external Signal implementations anymore
 		MapT<KeyT, std::any> m_toTypedSignal;
+		//I use this set to be able to not add the same PMF twice
+		//TODO: refactor to store the PMF itself?
+		//this probably means to completely ditch the seperate public class for signals?
+		//
+		std::set<std::type_index> m_PMF_IDs;
 		struct PropertyData
 		{
 			std::any value;
 			ProxyPropertyBase* proxyProperty = nullptr;
-			std::vector<SignalT<>*> signals;
-			std::vector<std::any*> typedSignal;
+			std::vector<std::any*> signals;
 		};
 		MapT<KeyT, PropertyData> m_propertyData;
 	};
@@ -491,7 +523,7 @@ namespace pd
 
 	//###########################################################################
 	//#
-	//#                        Subject                            
+	//#                        Signal                            
 	//#
 	//############################################################################
 
@@ -502,43 +534,37 @@ namespace pd
 	class Signal {
 
 	public:
-
 		Signal() = default;
 
 		// connects a member function to this Signal
-		template <typename T>
-		void connect(T *inst, void (T::*func)(Args...)) {
+		template <typename T, typename FuncT>
+		void connect(T *inst, FuncT&& func) 
+		{
+			using PMF = PMF_traits<FuncT>;
+			static_assert(std::is_same_v<T, typename PMF::class_type>, "Member func ptr type has to match instance type.");
 			connect([inst, func](Args... args) {
 				(inst->*func)(args...);
 			});
 		}
 
-		// connects a const member function to this Signal
-		template <typename T>
-		void connect(T *inst, void (T::*func)(Args...) const) {
-			connect([inst, func](Args... args) {
-				(inst->*func)(args...);
-			});
-		}
-
-		// connects a std::function to the signal. The returned
-		// value can be used to disconnect the function again
-		
+		// connects a std::function to the signal
 		template<typename FuncT>
-		void connect(FuncT&& slot) {
+		void connect(FuncT&& slot) 
+		{
 			m_slots.emplace_back(std::forward<FuncT>(slot));
 		}
 
 		// disconnects all previously connected functions
-		void disconnect() {
+		void disconnect() 
+		{
 			m_slots.clear();
 		}
 
 		// calls all connected functions
-		void emit(Args... p) const {
-			for (auto& slot : m_slots) {
+		void emit(Args... p) const 
+		{
+			for (auto& slot : m_slots)
 				slot(p...);
-			}
 		}
 
 	private:
