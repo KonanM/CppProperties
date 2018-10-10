@@ -19,9 +19,9 @@ public:
 	{
 		dirtyInt+=i;
 	}
-	IntPP* clone() override
+	std::unique_ptr<ProxyPropertyBase> clone() override
 	{
-		return new IntPP();
+		return std::make_unique<IntPP>(*this);
 	}
 	bool isDirty = false;
 	int dirtyInt = 0;
