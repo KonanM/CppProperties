@@ -31,12 +31,12 @@ const pd::PropertyDescriptor<std::string> StringResultPD("");
 TEST(CppPropertiesTest, TestSimpleProxyProperty)
 {
 	
-	pd::PropertyContainer<> container;
+	pd::PropertyContainerBase<> container;
 	auto intStringLambda = [](int i, std::string s)
 	{ 
 		return s + ": " + std::to_string(i);
 	};
-	auto proxyP = pd::makeProxyProperty(intStringLambda, IntPD, StringPD);
+	auto proxyP = pd::make_proxy_property(intStringLambda, IntPD, StringPD);
 	container.setProperty(StringResultPD, std::move(proxyP));
 	ASSERT_TRUE(container.getProperty(StringResultPD) == intStringLambda(IntPD.getDefaultValue(), StringPD.getDefaultValue()));
 	container.setProperty(IntPD, 20);
@@ -47,7 +47,7 @@ TEST(CppPropertiesTest, TestSimpleProxyProperty)
 
 TEST(CppPropertiesTest, TestCoreFunctionality)
 {
-	pd::PropertyContainer<> container;
+	pd::PropertyContainerBase<> container;
 	container.setProperty(IntPD, 1);
 
 	auto val = container.getProperty(IntPD);
@@ -70,15 +70,15 @@ TEST(CppPropertiesTest, TestCoreFunctionality)
 
 TEST(CppPropertiesTest, TestHierarchies)
 {
-	pd::PropertyContainer<> rootContainer;
+	pd::PropertyContainerBase<> rootContainer;
 	rootContainer.setProperty(StringPD, "Am I propagated to all children?");
 	auto rootContainerPtr = &rootContainer;
-	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainer<>>());
-	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainer<>>());
-	auto containerA2 = containerA->addChildContainer(std::make_unique<pd::PropertyContainer<>>());
-	auto containerA2A = containerA2->addChildContainer(std::make_unique<pd::PropertyContainer<>>());
-	auto containerA2B = containerA2->addChildContainer(std::make_unique<pd::PropertyContainer<>>());
-	auto containerB = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainer<>>());
+	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
+	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
+	auto containerA2 = containerA->addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
+	auto containerA2A = containerA2->addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
+	auto containerA2B = containerA2->addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
+	auto containerB = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
 
 	for (auto& container : { containerA , containerA1, containerA2, containerA2A, containerA2B, containerB })
 		ASSERT_TRUE(container->getProperty(StringPD) == "Am I propagated to all children?");
@@ -109,7 +109,7 @@ struct TestStruct
 
 TEST(CppPropertiesTest, TestSubjectObserver)
 {
-	pd::PropertyContainer rootContainer;
+	pd::PropertyContainerBase rootContainer;
 	int observerFuncCalledCount = 0;
 	auto observerFunc = [&observerFuncCalledCount]() { observerFuncCalledCount++; };
 	rootContainer.connect(IntPD, observerFunc);
@@ -117,8 +117,8 @@ TEST(CppPropertiesTest, TestSubjectObserver)
 	ASSERT_TRUE(observerFuncCalledCount == 1);
 	rootContainer.changeProperty(IntPD, 6);
 	ASSERT_TRUE(observerFuncCalledCount == 2);
-	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainer<>>());
-	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainer<>>());
+	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
+	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
 	containerA1->connect(IntPD, observerFunc);
 	containerA1->setProperty(IntPD, 10);
 	containerA1->removeProperty(IntPD);

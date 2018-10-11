@@ -42,12 +42,22 @@
 
 namespace pd
 {
+	template<template<typename ...> class MapT = std::unordered_map>
+	class PropertyContainerBase;
+
+	using PropertyContainer = PropertyContainerBase<>;
+
 	//forward declarations
 	template<typename T>
 	class ProxyProperty;
+
 	class ProxyPropertyBase;
+
+	class ChangeManager;
+
 	template <typename... Args>
 	class Signal;
+
 	//###########################################################################
 	//#
 	//#                        PropertyContainer                               
@@ -66,47 +76,56 @@ namespace pd
 		using class_type = typename T;
 	};
 	
-	template<template<typename ...> class MapT = std::unordered_map>
-	class PropertyContainer
+	template<template<typename ...> class MapT>
+	class PropertyContainerBase
 	{
 	public:
-		PropertyContainer() = default;
+		PropertyContainerBase() = default;
 		//enable move constructors
-		PropertyContainer& operator=(PropertyContainer&&) = default;
-		PropertyContainer(PropertyContainer&&) = default;
+		PropertyContainerBase& operator=(PropertyContainerBase&&) = default;
+		PropertyContainerBase(PropertyContainerBase&&) = default;
 		//the copy assignment operator is deleted, since it's not a use case to copy by assignment
-		PropertyContainer& operator=(const PropertyContainer&) = delete;
+		PropertyContainerBase& operator=(const PropertyContainerBase&) = delete;
 		//we need the copy constructor to be able to easily implement a clone method
 		//since we use unique_ptr we have to implement it ourselves
-		PropertyContainer(const PropertyContainer& other)
+		PropertyContainerBase(const PropertyContainerBase& other)
 			: m_toContainer(other.m_toContainer)
 			, m_toTypedSignal(other.m_toTypedSignal)
 			, m_propertyData(other.m_propertyData)
 		{
 			m_children.resize(other.m_children.size());
 			for (const auto& child : other.m_children)
-				m_children.emplace_back(std::make_unique<PropertyContainer>(*child));
+				m_children.emplace_back(std::make_unique<PropertyContainerBase>(*child));
 		}
 
 		//we only need the virtual destructor, because I didn't want to intrduce a special case for
 		//owned proxy properties, an option could be to try a variant for this
 		//or simple use a second vector to store proxy properties
-		virtual ~PropertyContainer() = default;
-
+		virtual ~PropertyContainerBase() = default;
+		friend class ChangeManager;
 
 		//getProperty returns the value for the provided PD
+		//if the property is not set, the default value will be returned
+		//the alternative would be to return an optional<T>, but that would 
+		//only cater the non normal use case and the optional can also be
+		//used by the caller
 		template<typename T>
 		T getProperty(const PropertyDescriptor<T>& pd) const
 		{
 			auto containerIt = m_toContainer.find(&pd);
 			//check if a property has never been set -> return the default value
 			if (containerIt == end(m_toContainer))
+			{
+				assert(false);
 				return pd.getDefaultValue();
+			}
+				
 			//first find out in which container the property is stored, then get the value from
 			//that container
 			auto& container = *containerIt->second;
 			return container.getPropertyInternal(pd);
 		}
+
 		//this function should only be ever needed very rarely
 		//you should not need to interact with a proxy property directly
 		template<typename T>
@@ -175,13 +194,13 @@ namespace pd
 		}
 		//we can connect a property to a function/lambda (or member function ptr)
 		//whenever the property changes the function will get called
-		//you can either connect to function without argument or one that is callable
+		//you can either connect to a function without arguments or one that is callable
 		//by the type of the property
 		template<typename T, typename FuncT>
 		void connect(const PropertyDescriptor<T>& pd, FuncT&& func)
 		{
 			using PMF = PMF_traits<FuncT>;
-			//get / construct the signal
+			//get / construct the signal if needed
 			auto& anySignal = m_toTypedSignal[&pd];
 			if (!anySignal.has_value())
 				anySignal.emplace<Signal<T>>();
@@ -227,9 +246,11 @@ namespace pd
 			if (auto& typedSignal = m_toTypedSignal[&pd]; typedSignals.has_value())
 				std::any_cast<Signal<T>&>(typedSignal).disconnect();
 		}
-
+		//here can can connect a property to a variable
+		//be aware this can crash if the provided variable goes out of scope
+		//so it should only be used for member variables
 		template<typename T>
-		void connectToMember(const PropertyDescriptor<T>& pd, T& memberVariable)
+		void connectToVar(const PropertyDescriptor<T>& pd, T& memberVariable)
 		{
 			connect(pd, [&memberVariable](const T& newValue)
 			{
@@ -237,7 +258,8 @@ namespace pd
 			});
 		}
 
-		PropertyContainer* addChildContainer(std::unique_ptr<PropertyContainer> propertyContainer)
+		//use this to build the property container tree structure
+		PropertyContainerBase* addChildContainer(std::unique_ptr<PropertyContainerBase> propertyContainer)
 		{
 			auto propertyContainerPtr = propertyContainer.get();
 			propertyContainer->setParent(this);
@@ -352,7 +374,7 @@ namespace pd
 					children->getAllSignals(pd, connectedSignals);
 		}
 
-		void setParentContainerForProperty(const PropertyDescriptorBase& pd, PropertyContainer* container)
+		void setParentContainerForProperty(const PropertyDescriptorBase& pd, PropertyContainerBase* container)
 		{
 			if (container)
 				m_toContainer[&pd] = container;
@@ -406,7 +428,7 @@ namespace pd
 			return m_propertyData.find(&pd) != end(m_propertyData);
 		}
 
-		PropertyContainer* getOwningPropertyContainer(const PropertyDescriptorBase& pd)
+		PropertyContainerBase* getOwningPropertyContainer(const PropertyDescriptorBase& pd)
 		{
 			//check if we own the property ourselves
 			if (ownsPropertyDataInternal(pd))
@@ -416,17 +438,17 @@ namespace pd
 			return containerIt != end(m_toContainer) ? (containerIt->second) : nullptr;
 		}
 
-		void setParent(PropertyContainer* container)
+		void setParent(PropertyContainerBase* container)
 		{
 			m_parent = container;
 		}
 
 		using KeyT = const PropertyDescriptorBase*;
 		//contains owned ProxyProperties as well as other owned children
-		std::vector<std::unique_ptr<PropertyContainer>> m_children;
-		PropertyContainer* m_parent = nullptr;
+		std::vector<std::unique_ptr<PropertyContainerBase>> m_children;
+		PropertyContainerBase* m_parent = nullptr;
 
-		MapT<KeyT, PropertyContainer*> m_toContainer;
+		MapT<KeyT, PropertyContainerBase*> m_toContainer;
 		//not sure if using std::any is the correct choice here
 		//I could also write a virtual base class for the Signal
 		MapT<KeyT, std::any> m_toTypedSignal;
@@ -436,6 +458,7 @@ namespace pd
 			ProxyPropertyBase* proxyProperty = nullptr;
 			std::any signal;
 			std::vector<std::any*> connectedSignals;
+			bool dirtyFlag = false;
 		};
 		MapT<KeyT, PropertyData> m_propertyData;
 	};
@@ -446,7 +469,7 @@ namespace pd
 	//#
 	//############################################################################
 
-	class ProxyPropertyBase : public PropertyContainer<>
+	class ProxyPropertyBase : public PropertyContainer
 	{
 	public:
 		virtual ~ProxyPropertyBase() = default;
@@ -464,7 +487,7 @@ namespace pd
 
 	//###########################################################################
 	//#
-	//#              makeProxyProperty and ConvertingProxyProperty                         
+	//#              make_proxy_property and ConvertingProxyProperty                         
 	//#
 	//############################################################################
 
@@ -475,10 +498,10 @@ namespace pd
 	//auto intStringLambda = [](int i, std::string s)
 	//{ return s + ": " + std::to_string(i);
 	//};
-	//container.setProperty(CombinedStrPD, pd::makeProxyProperty(intStringLambda, IntPD, StringPD));
+	//container.setProperty(CombinedStrPD, pd::make_proxy_property(intStringLambda, IntPD, StringPD));
 
 	template<typename FuncT, typename ... PropertDescriptors>
-	auto makeProxyProperty(FuncT&& func, const PropertDescriptors& ... pds)
+	auto make_proxy_property(FuncT&& func, const PropertDescriptors& ... pds)
 	{
 		using ResultT = typename std::invoke_result_t<FuncT, PropertDescriptors::type...>;
 		return std::make_unique<ConvertingProxyProperty<ResultT, FuncT, PropertDescriptors...>>(std::forward<FuncT>(func), pds...);
@@ -526,10 +549,11 @@ namespace pd
 	//############################################################################
 
 
-	//super simple signal implementation
-
+	//rather simple signal implementation that can handle as Functor and class ptr + PMF 
+	//the only exception is that it will not add the same PMF twice
 	template <typename... Args>
-	class Signal {
+	class Signal 
+	{
 
 	public:
 		Signal() = default;
@@ -575,5 +599,23 @@ namespace pd
 
 	private:
 		std::unordered_map<std::type_index, std::function<void(Args...)>> m_slots;
+	};
+
+	//the change manager handles an update step, which looks like:
+	//1. collect all signals belonging to properties that changed since the last update
+	//2. remove duplicates of calls to class member functions
+	//3. reset the dirty flags of all the properties that changed
+	//4. emit the function calls of all the signals
+	//TODO: add a pre and post update step
+	//TODO: add implementation
+
+	class ChangeManager
+	{
+	public:
+		ChangeManager(const PropertyContainer& container)
+		{
+
+		}
+
 	};
 }
