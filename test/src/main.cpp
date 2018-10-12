@@ -140,6 +140,7 @@ TEST(CppPropertiesTest, TestPMFOnlyAddedOnce)
 	rootContainer.connect(IntPD, &IntPP::dirtyIntFunc);
 	rootContainer.changeProperty(IntPD, 1);
 	ASSERT_TRUE(rootContainer.dirtyInt == 1);
+	
 	rootContainer.changeProperty(IntPD, 2);
 	ASSERT_TRUE(rootContainer.dirtyInt == 3);
 }
