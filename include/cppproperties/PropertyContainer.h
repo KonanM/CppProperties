@@ -96,7 +96,7 @@ namespace pd
 		//owned proxy properties, an option could be to try a variant for this
 		//or simple use a second vector to store proxy properties
 		virtual ~PropertyContainerBase() = default;
-		friend class ChangeManager;
+		
 
 		//getProperty returns the value for the provided PD
 		//if the property is not set, the default value will be returned
@@ -276,13 +276,52 @@ namespace pd
 			m_children.emplace_back(std::move(propertyContainer));
 			return propertyContainerPtr;
 		}
-		//TODO: write proper upgrade
-		void update()
+		//the emit step looks like:
+		//1. collect all signals belonging to properties that changed since the last update
+		//2. remove duplicates of calls to class member functions (optional)
+		//3. reset the dirty flags of all the properties that changed
+		//4. get the new value and make a copy
+		//5. emit the function calls of all the signals
+		//6. call emit on all children
+		//TODO: add a pre and post update step
+		//TODO: add implementation
+		void emit(bool ignoreDuplicateCalls = true)
 		{
 			for (auto* dirtyProperty : m_dirtyProperties)
 			{
-				dirtyProperty->signal.emit(dirtyProperty->value);
+				dirtyProperty->isDirty = false;
 			}
+			//TODO add compile option, instead of runtime?
+			std::unordered_map<std::type_index, const std::function<void()>&> slots;
+			for (auto* dirtyProperty : m_dirtyProperties)
+			{
+				//the copy here is needed if we want to have stable values for all connected signals
+				//this is because an emit might influence update value 
+				//if that's not needed, we could simply pass the value directly to the emit
+				std::any newValue = dirtyProperty->value;
+				if (ignoreDuplicateCalls)
+				{
+					for (auto& dirtySignal : dirtyProperty->connectedSignals)
+					{
+						dirtySignal->merge(slots);
+						dirtySignal->setEmitValue(newValue);
+					}
+						
+					for (auto&[idx, slot] : slots)
+						slot();
+					slots.clear();
+				}
+				else
+				{
+					for (auto& dirtySignal : dirtyProperty->connectedSignals)
+						dirtySignal->emit(newValue);
+				}
+
+				
+			}
+			m_dirtyProperties.clear();
+			for (auto& child : m_children)
+				child->emit(ignoreDuplicateCalls);
 		}
 
 	protected:
@@ -481,7 +520,6 @@ namespace pd
 			//if we want stability of the property value during call time we have to introduce a copy
 			std::any value;
 			ProxyPropertyBase* proxyProperty = nullptr;
-			Signal signal;
 			std::vector<Signal*> connectedSignals;
 			bool isDirty = false;
 		};
@@ -583,7 +621,6 @@ namespace pd
 	//another requirement is that you can't add the same PMF twice
 	class Signal 
 	{
-
 	public:
 		Signal() = default;
 
@@ -606,9 +643,9 @@ namespace pd
 		{
 			using PMF = PMF_traits<pmfT>;
 			static_assert(std::is_same_v<classT, std::remove_const_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
-			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &val = m_proptertyValue]()
+			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &valPtrPtr = m_proptertyPtrPtr]()
 			{
-				(inst->*func)(std::any_cast<T>(val));
+				(inst->*func)(std::any_cast<T>(**valPtrPtr));
 			});
 		}
 
@@ -617,9 +654,9 @@ namespace pd
 		template<typename T, typename FuncT>
 		void connect(FuncT&& func)
 		{
-			m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<pmfT>(func), &val = m_proptertyValue]()
+			m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<pmfT>(func), &valPtrPtr = m_proptertyPtrPtr]()
 			{
-				func(std::any_cast<T>(val));
+				func(std::any_cast<T>(**valPtrPtr));
 			});
 		}
 
@@ -637,33 +674,32 @@ namespace pd
 		}
 
 		// calls all connected functions
-		void emit(std::any value) const 
+		void emit(std::any& value) const 
 		{
-			m_proptertyValue = std::move(value);
+			setEmitValue(value);
 			for (auto& [typeID, slot] : m_slots)
 				slot();
 		}
-
-	protected:
-		std::unordered_map<std::type_index, std::function<void()>> m_slots;
-		mutable std::any m_proptertyValue;
-	};
-
-	//the change manager handles an update step, which looks like:
-	//1. collect all signals belonging to properties that changed since the last update
-	//2. remove duplicates of calls to class member functions
-	//3. reset the dirty flags of all the properties that changed
-	//4. emit the function calls of all the signals
-	//TODO: add a pre and post update step
-	//TODO: add implementation
-
-	class ChangeManager
-	{
-	public:
-		ChangeManager(const PropertyContainer& container)
+		void setEmitValue(std::any& value) const
 		{
-
+			m_proptertyPtr = &value;
+		}
+		void merge(std::unordered_map<std::type_index, const std::function<void()>&>& slots) const 
+		{
+			for (auto&[typeIndex, func] : m_slots)
+				slots.emplace(typeIndex, func);
 		}
 
+	protected:
+
+		std::unordered_map<std::type_index, std::function<void()>> m_slots;
+		//I know ptr ptr are always ugly, but when I create the wrapper lambda functions
+		//the address of the any value is not known
+		//the alternative would be a full copy in the emit, but this could be quite costly in the case of things like std::string
+
+		mutable std::any* m_proptertyPtr;
+		mutable std::any** m_proptertyPtrPtr = &m_proptertyPtr;
 	};
+
+
 }

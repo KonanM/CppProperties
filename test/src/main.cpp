@@ -114,20 +114,26 @@ TEST(CppPropertiesTest, TestSubjectObserver)
 	auto observerFunc = [&observerFuncCalledCount]() { observerFuncCalledCount++; };
 	rootContainer.connect(IntPD, observerFunc);
 	rootContainer.setProperty(IntPD, 5);
+	rootContainer.emit();
 	ASSERT_TRUE(observerFuncCalledCount == 1);
 	rootContainer.changeProperty(IntPD, 6);
+	rootContainer.emit();
 	ASSERT_TRUE(observerFuncCalledCount == 2);
 	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
 	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainerBase<>>());
 	containerA1->connect(IntPD, observerFunc);
 	containerA1->setProperty(IntPD, 10);
+	rootContainer.emit();
 	containerA1->removeProperty(IntPD);
+	rootContainer.emit();
 	ASSERT_TRUE(observerFuncCalledCount == 4);
-
+	//here we test if we get 2 updates with the emit false option
 	rootContainer.changeProperty(IntPD, IntPD.getDefaultValue());
+	rootContainer.emit(false);
 	ASSERT_TRUE(observerFuncCalledCount == 6);
 	//the value doesn't change, so we will not trigger an update
 	rootContainer.removeProperty(IntPD);
+	rootContainer.emit();
 	ASSERT_TRUE(observerFuncCalledCount == 6);
 }
 
@@ -139,9 +145,10 @@ TEST(CppPropertiesTest, TestPMFOnlyAddedOnce)
 	rootContainer.connect(IntPD, &IntPP::dirtyIntFunc);
 	rootContainer.connect(IntPD, &IntPP::dirtyIntFunc);
 	rootContainer.changeProperty(IntPD, 1);
+	rootContainer.emit();
 	ASSERT_TRUE(rootContainer.dirtyInt == 1);
-	
 	rootContainer.changeProperty(IntPD, 2);
+	rootContainer.emit();
 	ASSERT_TRUE(rootContainer.dirtyInt == 3);
 }
 
