@@ -94,14 +94,14 @@ namespace pd
 
 		//we only need the virtual destructor, because I didn't want to intrduce a special case for
 		//owned proxy properties, an option could be to try a variant for this
-		//or simple use a second vector to store proxy properties
+		//or simply use a second vector to store proxy properties
 		virtual ~PropertyContainerBase() = default;
 		
 
 		//getProperty returns the value for the provided PD
 		//if the property is not set, the default value will be returned
 		//the alternative would be to return an optional<T>, but that would 
-		//only cater the non normal use case and the optional can also be
+		//only cater the excpetional use case and the optional can also be
 		//used by the caller
 		template<typename T>
 		T getProperty(const PropertyDescriptor<T>& pd) const
@@ -284,7 +284,6 @@ namespace pd
 		//5. emit the function calls of all the signals
 		//6. call emit on all children
 		//TODO: add a pre and post update step
-		//TODO: add implementation
 		void emit(bool ignoreDuplicateCalls = true)
 		{
 			for (auto* dirtyProperty : m_dirtyProperties)
@@ -345,9 +344,11 @@ namespace pd
 			auto valueIt = m_propertyData.find(&pd);
 			if (valueIt == end(m_propertyData))
 				return nullptr;
+
 			auto& propertyData = valueIt->second;
 			if (!propertyData.proxyProperty)
 				return nullptr;
+
 			return static_cast<ProxyProperty<T>*>(propertyData.proxyProperty);
 		}
 
@@ -362,8 +363,7 @@ namespace pd
 				{
 					propertyData.value = std::make_any<T>(std::forward<U>(value));
 					propertyData.proxyProperty = nullptr;
-					//invoke all observers
-					//TODO: add dirty
+
 					setDirty(propertyData);
 				}
 			}
@@ -481,8 +481,8 @@ namespace pd
 			auto& propertyData = m_propertyData[&pd];
 			setDirty(propertyData);
 		}
-		struct PropertyData;
-		void setDirty(PropertyData& propertyData)
+		struct Property;
+		void setDirty(Property& propertyData)
 		{
 			if (!propertyData.isDirty)
 			{
@@ -512,19 +512,20 @@ namespace pd
 		PropertyContainerBase* m_parent = nullptr;
 
 		MapT<KeyT, PropertyContainerBase*> m_toContainer;
-		//not sure if using std::any is the correct choice here
-		//I could also write a virtual base class for the Signal
+		//we could also store the signal directly in the property
 		MapT<KeyT, Signal> m_toTypedSignal;
-		struct PropertyData
+		struct Property
 		{
-			//if we want stability of the property value during call time we have to introduce a copy
 			std::any value;
+			//in theory we could also put the proxy property base ptr into the any,
+			//or use a variant, but I think the minimul memory overhead is a price
+			//I'm happy to pay (vs. compile time overhead of std::variant)
 			ProxyPropertyBase* proxyProperty = nullptr;
 			std::vector<Signal*> connectedSignals;
 			bool isDirty = false;
 		};
-		MapT<KeyT, PropertyData> m_propertyData;
-		std::vector<PropertyData*> m_dirtyProperties;
+		MapT<KeyT, Property> m_propertyData;
+		std::vector<Property*> m_dirtyProperties;
 	};
 
 	//###########################################################################
