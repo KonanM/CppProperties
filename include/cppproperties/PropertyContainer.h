@@ -212,15 +212,21 @@ namespace pd
 				signal.connect<T>(std::forward<FuncT>(func));
 			}
 			//case 2: pointer of member function with argument of type T
+			
 			else if constexpr (std::is_invocable_v<typename PMF::member_type, T>)
 			{
 				signal.connect<T>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
 			}
-			//case 3: callable functor with no argument
-			//case 4: pointer of member function with no argument
-			//this should be used if we want multiple properties to trigger the same method
+			//the last two should be used if we want multiple properties to trigger the same method
 			//e.g. we have to recalulate something when any of the properties the result depends on changes
-			else if constexpr (std::is_function_v<typename PMF::member_type> || std::is_invocable_v<FuncT>)
+			//case 3: callable functor with no argument
+			else if constexpr (std::is_function_v<typename PMF::member_type>)
+			{
+				signal.connect(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+			}
+			//case 4: pointer of member function with no argument
+
+			else if constexpr (std::is_invocable_v<FuncT>)
 			{
 				signal.connect(std::forward<FuncT>(func));
 			}
@@ -286,18 +292,18 @@ namespace pd
 		//TODO: add a pre and post update step
 		void emit(bool ignoreDuplicateCalls = true)
 		{
-			for (auto* dirtyProperty : m_dirtyProperties)
+			for (auto* dirtyProperty : m_changedProperties)
 			{
 				dirtyProperty->isDirty = false;
 			}
 			//TODO add compile option, instead of runtime?
 			std::unordered_map<std::type_index, const std::function<void()>&> slots;
-			for (auto* dirtyProperty : m_dirtyProperties)
+			for (auto* dirtyProperty : m_changedProperties)
 			{
 				//the copy here is needed if we want to have stable values for all connected signals
 				//this is because an emit might influence update value 
 				//if that's not needed, we could simply pass the value directly to the emit
-				std::any newValue = dirtyProperty->value;
+				std::any newValue = dirtyProperty->proxyProperty ? dirtyProperty->proxyProperty->getAsAny() : dirtyProperty->value;
 				if (ignoreDuplicateCalls)
 				{
 					for (auto& dirtySignal : dirtyProperty->connectedSignals)
@@ -318,7 +324,7 @@ namespace pd
 
 				
 			}
-			m_dirtyProperties.clear();
+			m_changedProperties.clear();
 			for (auto& child : m_children)
 				child->emit(ignoreDuplicateCalls);
 		}
@@ -371,6 +377,7 @@ namespace pd
 			else if constexpr(std::is_base_of_v<ProxyProperty<T>, U::element_type>)
 			{
 				propertyData.proxyProperty = value.get();
+				propertyData.proxyProperty->setDirtyCallback(DirtyCallback{ &propertyData });
 				addChildContainer(std::move(value));
 				const auto newValue = static_cast<ProxyProperty<T>*>(propertyData.proxyProperty)->get();
 				if (newValue != pd.getDefaultValue())
@@ -487,7 +494,7 @@ namespace pd
 			if (!propertyData.isDirty)
 			{
 				propertyData.isDirty = true;
-				m_dirtyProperties.emplace_back(&propertyData);
+				m_changedProperties.emplace_back(&propertyData);
 			}
 		}
 
@@ -500,7 +507,18 @@ namespace pd
 			auto containerIt = m_toContainer.find(&pd);
 			return containerIt != end(m_toContainer) ? (containerIt->second) : nullptr;
 		}
-
+		struct DirtyCallback;
+		friend struct DirtyCallback;
+		struct DirtyCallback
+		{
+			void operator()(PropertyContainer& container)
+			{
+				container.setDirty(*propertyData);
+			}
+			Property* propertyData = nullptr;
+		};
+		
+		
 		void setParent(PropertyContainerBase* container)
 		{
 			m_parent = container;
@@ -518,14 +536,14 @@ namespace pd
 		{
 			std::any value;
 			//in theory we could also put the proxy property base ptr into the any,
-			//or use a variant, but I think the minimul memory overhead is a price
+			//or use a variant, but I think the minimal memory overhead is a price
 			//I'm happy to pay (vs. compile time overhead of std::variant)
 			ProxyPropertyBase* proxyProperty = nullptr;
 			std::vector<Signal*> connectedSignals;
 			bool isDirty = false;
 		};
 		MapT<KeyT, Property> m_propertyData;
-		std::vector<Property*> m_dirtyProperties;
+		std::vector<Property*> m_changedProperties;
 	};
 
 	//###########################################################################
@@ -539,6 +557,26 @@ namespace pd
 	public:
 		virtual ~ProxyPropertyBase() = default;
 		virtual std::unique_ptr<ProxyPropertyBase> clone() = 0;
+		virtual std::any getAsAny() const = 0;
+
+		//maybe there is a nicer way to achieve the same thing?
+		//proxy properties have to indicate themselves if they got changed
+		//so the parent sets the callback
+		//I guess a std::funtion could serve as a more general solution?
+		void proxyPropertyChanged()
+		{
+			if (m_dirtyCallBack.propertyData)
+			{
+				m_dirtyCallBack(*this);
+			}
+		}
+		void setDirtyCallback(DirtyCallback&& dirtyCallback)
+		{
+			m_dirtyCallBack = std::move(dirtyCallback);
+		}
+	protected:
+
+		DirtyCallback m_dirtyCallBack;
 	};
 	//proxy property is simply a an abstration of a property, instead of using a value
 	//you can use a class to calculate that value
@@ -548,6 +586,11 @@ namespace pd
 	public:
 		using type = T;
 		virtual T get() const = 0;
+		
+		virtual std::any getAsAny() const final
+		{
+			return std::make_any<T>(get());
+		}
 	};
 
 	//###########################################################################
@@ -581,13 +624,14 @@ namespace pd
 			, m_func(std::move(funcT))
 			, m_pds(std::make_tuple(std::addressof(pds)...))
 		{
+			((void)connect(pds, &ProxyPropertyBase::proxyPropertyChanged), ...);
 		}
 		//implement contructor in the base classes later
 		ConvertingProxyProperty(const ConvertingProxyProperty&) = default;
 		ConvertingProxyProperty(ConvertingProxyProperty&&) = default;
 
 		//ConvertingProxyProperty(const ConvertingProxyProperty&) = default;
-		virtual T get() const override
+		virtual T get() const final
 		{
 			//all the property descriptors are packed in a tuple, therefore we need std::apply to unpack them
 			return std::apply([&](const auto& pds...)
@@ -605,6 +649,7 @@ namespace pd
 	protected:
 		FuncT m_func;
 		std::tuple<const PropertDescriptors*...> m_pds;
+
 	};
 
 	//###########################################################################
@@ -625,21 +670,20 @@ namespace pd
 	public:
 		Signal() = default;
 
-		//// connects a member function without argument to this Signal
+		//// connects a member function without argument to this 
 		template <typename classT, typename pmfT>
 		void connect(classT *inst, pmfT&& func)
 		{
-			using PMF = PMF_traits<pmfT>
-				static_assert(std::is_same_v<classT, std::remove_const_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
-			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, std::forward<pmfT>(func), &propertyValue]()
+			using PMF = PMF_traits<pmfT>;
+			static_assert(std::is_same_v<classT, std::remove_const_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
+			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func]()
 			{
-				//if we want stability of the property value during call time we have to introduce
 				(inst->*func)();
 			});
 		}
 
 		//// connects a member function with an argument of type T to this signal
-		template <typename T, typename classT, typename pmfT>
+		template <typename T, typename classT, typename pmfT, typename = T /*reject void argument PMF*/>
 		void connect(classT *inst, pmfT&& func)
 		{
 			using PMF = PMF_traits<pmfT>;
