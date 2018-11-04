@@ -49,26 +49,30 @@ namespace pd
 	template<typename T>
 	class ProxyProperty;
 	class ProxyPropertyBase;
-	class ChangeManager;
 	class Signal;
+
+	//pointer to member function utilities
+
+	template<typename>
+	struct PMF_traits 
+	{
+		using member_type = void;
+		using class_type = void;
+	};
+
+	template<class T, class U>
+	struct PMF_traits<U T::*> 
+	{
+		using member_type = typename U;
+		using class_type = typename T;
+	};
+
 
 	//###########################################################################
 	//#
 	//#                        PropertyContainer                               
 	//#
 	//############################################################################
-
-	template<typename>
-	struct PMF_traits {
-		using member_type = void;
-		using class_type = void;
-	};
-
-	template<class T, class U>
-	struct PMF_traits<U T::*> {
-		using member_type = typename U;
-		using class_type = typename T;
-	};
 	
 	template<template<typename ...> class MapT>
 	class PropertyContainerBase
@@ -365,10 +369,21 @@ namespace pd
 			//this is the normal case where we store a value
 			if constexpr(std::is_convertible_v<std::decay_t<U>, T>)
 			{
+				
+
 				if (!propertyData.value.has_value() || std::any_cast<T>(propertyData.value) != value)
 				{
 					propertyData.value = std::make_any<T>(std::forward<U>(value));
-					propertyData.proxyProperty = nullptr;
+					if (propertyData.proxyProperty)
+					{
+						//this will most likely be a mistake
+						//if this is really intended call remove property before
+						assert(!propertyData.proxyProperty);
+						removeProxyProperty(propertyData.proxyProperty);
+						propertyData.proxyProperty = nullptr;
+					}
+						
+					
 
 					setDirty(propertyData);
 				}
@@ -387,6 +402,16 @@ namespace pd
 			}
 			else
 				static_assert(false, "The type T of the property descriptor doesn't match the type of the passed value.");
+		}
+
+		void removeProxyProperty(const ProxyPropertyBase* proxyProperty)
+		{
+			auto ppIt = std::find_if(begin(m_children), end(m_children), [proxyProperty](const std::unique_ptr<PropertyContainerBase>& childPtr)
+			{
+				return childPtr.get() == proxyProperty;
+			});
+			if(ppIt != end(m_children))
+				m_children.erase(ppIt);
 		}
 
 		template<typename T>
@@ -456,6 +481,8 @@ namespace pd
 			if (newContainer)
 				newContainer->addSignals(pd, oldSubjects);
 			//now we remove the property data
+			if (propertyData.proxyProperty)
+				removeProxyProperty(propertyData.proxyProperty);
 			m_propertyData.erase(&pd);
 			//notify all old signals (if necessary)
 			if (newContainer)
@@ -556,7 +583,7 @@ namespace pd
 	{
 	public:
 		virtual ~ProxyPropertyBase() = default;
-		virtual std::unique_ptr<ProxyPropertyBase> clone() = 0;
+		virtual std::unique_ptr<ProxyPropertyBase> clone() { return nullptr; };
 		virtual std::any getAsAny() const = 0;
 
 		//maybe there is a nicer way to achieve the same thing?
