@@ -263,7 +263,11 @@ namespace pd
 				memberVariable = newValue;
 			});
 		}
-
+		template<typename ContainerT, typename... Args>
+		PropertyContainerBase* addChildContainer(Args&& ...args)
+		{
+			return addChildContainer(std::make_unique<ContainerT>(std::forward<Args>(args)...));
+		}
 
 		//use this to build the property container tree structure
 		PropertyContainerBase* addChildContainer(std::unique_ptr<PropertyContainerBase> propertyContainer)

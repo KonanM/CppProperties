@@ -4,6 +4,12 @@ pd::PropertyDescriptor<int> IntPD(0);
 pd::PropertyDescriptor<std::string> StringPD("Empty");
 pd::PropertyDescriptor<int*> IntPtrPD(nullptr);
 
+//###########################################################################
+//#
+//#                    PropertyContainer Tests     
+//#                      set, change, get
+//#
+//###########################################################################
 
 TEST(PropertyContainerTest, getProperty_emptyContainer_getDefaultValue)
 {
@@ -99,6 +105,13 @@ TEST(PropertyContainerTest, setMultipleProperties_getProperty_newValue)
 		ASSERT_TRUE(root.getProperty(pd) == pd.getDefaultValue() * 2);
 }
 
+//###########################################################################
+//#
+//#                    PropertyContainer Tests       
+//#							Proxy Properties
+//#
+//###########################################################################
+
 class SimpleIntPP : public pd::ProxyProperty<int>
 {
 public:
@@ -134,6 +147,45 @@ TEST(PropertyContainerTest, testProxyProperty_removeProxyProperty_containerEmpty
 	ASSERT_FALSE(root.hasProperty(IntPD));
 }
 
+//###########################################################################
+//#
+//#                    PropertyContainer Tests       
+//#						   Proxy Properties
+//#						  make_proxy_property
+//#
+//###########################################################################
+
+const pd::PropertyDescriptor<std::string> StringResultPD("");
+TEST(CppPropertiesTest, makeProxyProperty_defaultInput_defaultOut)
+{
+	pd::PropertyContainer root;
+
+	auto intStringLambda = [](int i, std::string s)
+	{
+		return s + ": " + std::to_string(i);
+	};
+	auto proxyP = pd::make_proxy_property(intStringLambda, IntPD, StringPD);
+	root.setProperty(StringResultPD, std::move(proxyP));
+
+	ASSERT_TRUE(root.getProperty(StringResultPD) == intStringLambda(IntPD.getDefaultValue(), StringPD.getDefaultValue()));
+}
+const pd::PropertyDescriptor<bool> StringContainsHelloPD(false);
+TEST(CppPropertiesTest, makeProxyProperty_matchString_findHello)
+{
+	pd::PropertyContainer root;
+	auto findString = [matchString = "Hello"](const std::string& source)
+	{
+		return source.find(matchString) != std::string::npos;
+	};
+	auto proxyP = pd::make_proxy_property(findString, StringPD);
+	root.setProperty(StringContainsHelloPD, std::move(proxyP));
+	ASSERT_FALSE(root.getProperty(StringContainsHelloPD));
+	
+	root.setProperty(StringPD, "Hello World!");
+	ASSERT_TRUE(root.getProperty(StringContainsHelloPD));
+}
+
+
 class IntPP : public pd::ProxyProperty<int>
 {
 public:
@@ -157,80 +209,72 @@ public:
 	int dirtyInt = 0;
 };
 
-const pd::PropertyDescriptor<std::string> StringResultPD("");
-TEST(CppPropertiesTest, TestSimpleProxyProperty)
-{	
-	pd::PropertyContainer container;
-	auto intStringLambda = [](int i, std::string s)
-	{ 
-		return s + ": " + std::to_string(i);
-	};
-	auto proxyP = pd::make_proxy_property(intStringLambda, IntPD, StringPD);
-	container.setProperty(StringResultPD, std::move(proxyP));
-	ASSERT_TRUE(container.getProperty(StringResultPD) == intStringLambda(IntPD.getDefaultValue(), StringPD.getDefaultValue()));
-	container.setProperty(IntPD, 20);
-	ASSERT_TRUE(container.getProperty(StringResultPD) == intStringLambda(20, StringPD.getDefaultValue()));
-	container.setProperty(StringPD, "something");
-	ASSERT_TRUE(container.getProperty(StringResultPD) == intStringLambda(20, "something"));
-}
+//###########################################################################
+//#
+//#                    PropertyContainer Tests       
+//#						 Container Hierarchy
+//#
+//###########################################################################
 
-TEST(CppPropertiesTest, TestCoreFunctionality)
-{
-	pd::PropertyContainer container;
-	container.setProperty(IntPD, 1);
-
-	auto val = container.getProperty(IntPD);
-	ASSERT_TRUE(val == 1);
-	container.changeProperty(IntPD, 10);
-
-	auto valNew = container.getProperty(IntPD);
-	ASSERT_TRUE(valNew == 10);
-	int i = 11;
-	container.setProperty(IntPtrPD, &i);
-	auto&& intPtr = container.getProperty(IntPtrPD);
-	ASSERT_TRUE(intPtr == &i && *intPtr == i);
-	auto newPP = std::make_unique<IntPP>();
-	auto newPPPtr = newPP.get();
-	container.setProperty(IntPD, std::move(newPP));
-	ASSERT_TRUE(container.getProperty(IntPD) == 42);
-
-	ASSERT_TRUE(container.getProxyProperty(IntPD) == newPPPtr);
-}
-
-TEST(CppPropertiesTest, TestHierarchies)
+TEST(CppPropertiesTest, TestHierarchies_setAtRoot_visibleAtChildren)
 {
 	pd::PropertyContainer rootContainer;
 	rootContainer.setProperty(StringPD, "Am I propagated to all children?");
-	auto rootContainerPtr = &rootContainer;
-	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainer>());
-	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainer>());
-	auto containerA2 = containerA->addChildContainer(std::make_unique<pd::PropertyContainer>());
-	auto containerA2A = containerA2->addChildContainer(std::make_unique<pd::PropertyContainer>());
-	auto containerA2B = containerA2->addChildContainer(std::make_unique<pd::PropertyContainer>());
-	auto containerB = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainer>());
+	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
+	auto containerA2 = containerA->addChildContainer<pd::PropertyContainer>();
+	auto containerA2A = containerA2->addChildContainer<pd::PropertyContainer>();
+	auto containerA2B = containerA2->addChildContainer<pd::PropertyContainer>();
+	auto containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
 
 	for (auto& container : { containerA , containerA1, containerA2, containerA2A, containerA2B, containerB })
 		ASSERT_TRUE(container->getProperty(StringPD) == "Am I propagated to all children?");
-
-	containerA2->setProperty(IntPD, 13);
-	int valueA2 = containerA2B->getProperty(IntPD);
-	ASSERT_TRUE(valueA2 == 13);
-	ASSERT_TRUE(!rootContainer.hasProperty(IntPD) && rootContainer.getProperty(IntPD) == IntPD.getDefaultValue());
-	rootContainer.setProperty(IntPD, 42);
-	int valueA = containerA->getProperty(IntPD);
-	valueA2 = containerA2->getProperty(IntPD);
-	ASSERT_TRUE(valueA == 42 && valueA2 == 13);
-
-	containerA2B->changeProperty(IntPD, 45);
-	ASSERT_TRUE(containerA2A->getProperty(IntPD) == 45 && rootContainer.getProperty(IntPD) == 42);
-
-	int oldA2value = containerA2->getProperty(IntPD);
-	containerA2->removeProperty(IntPD);
-
-	int newA2Value = containerA2->getProperty(IntPD);
-	ASSERT_TRUE(newA2Value == 42);
 }
 
+TEST(CppPropertiesTest, TestHierarchies_setAfterRoot_notVisibleForParents)
+{
+	pd::PropertyContainer rootContainer;
+
+	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
+	
+	auto containerA2 = containerA->addChildContainer<pd::PropertyContainer>();
+	containerA2->setProperty(StringPD, "Am I propagated to all children?");
+	auto containerA2A = containerA2->addChildContainer<pd::PropertyContainer>();
+	auto containerA2B = containerA2->addChildContainer<pd::PropertyContainer>();
+	
+	auto containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
+
+	for (auto& container : { containerA2, containerA2A, containerA2B })
+		ASSERT_TRUE(container->getProperty(StringPD) == "Am I propagated to all children?");
+
+	for (auto& container : { &rootContainer, containerA, containerA1, containerB })
+		ASSERT_FALSE(container->getProperty(StringPD) == "Am I propagated to all children?");
+
+}
+
+TEST(CppPropertiesTest, TestHierarchies_setDifferentValues_onlyVisibleUntilSet)
+{
+	pd::PropertyContainer rootContainer;
+	
+	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
+	
+	auto containerA2 = containerA->addChildContainer<pd::PropertyContainer>();
+	auto containerA2A = containerA2->addChildContainer<pd::PropertyContainer>();
+	auto containerA2B = containerA2->addChildContainer<pd::PropertyContainer>();
+	auto containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
+
+	containerA2->setProperty(StringPD, "A2 String!");
+	rootContainer.setProperty(StringPD, "Root String!");
+
+	for (auto& container : { &rootContainer, containerA, containerA1, containerB})
+		ASSERT_TRUE(container->getProperty(StringPD) == "Root String!");
+
+	for (auto& container : { containerA2, containerA2A, containerA2B })
+		ASSERT_TRUE(container->getProperty(StringPD) == "A2 String!");
+
+}
 struct TestStruct
 {
 	void func() { std::cout << "Hello World!"; };
@@ -248,8 +292,8 @@ TEST(CppPropertiesTest, TestSubjectObserver)
 	rootContainer.changeProperty(IntPD, 6);
 	rootContainer.emit();
 	ASSERT_TRUE(observerFuncCalledCount == 2);
-	auto containerA = rootContainer.addChildContainer(std::make_unique<pd::PropertyContainer>());
-	auto containerA1 = containerA->addChildContainer(std::make_unique<pd::PropertyContainer>());
+	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
 	containerA1->connect(IntPD, observerFunc);
 	containerA1->setProperty(IntPD, 10);
 	rootContainer.emit();
