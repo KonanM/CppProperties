@@ -220,94 +220,134 @@ TEST(CppPropertiesTest, TestHierarchies_setAtRoot_visibleAtChildren)
 {
 	pd::PropertyContainer rootContainer;
 	rootContainer.setProperty(StringPD, "Am I propagated to all children?");
-	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
-	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
-	auto containerA2 = containerA->addChildContainer<pd::PropertyContainer>();
-	auto containerA2A = containerA2->addChildContainer<pd::PropertyContainer>();
-	auto containerA2B = containerA2->addChildContainer<pd::PropertyContainer>();
-	auto containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto& containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto& containerA1 = containerA.addChildContainer<pd::PropertyContainer>();
+	auto& containerA2 = containerA.addChildContainer<pd::PropertyContainer>();
+	auto& containerA2A = containerA2.addChildContainer<pd::PropertyContainer>();
+	auto& containerA2B = containerA2.addChildContainer<pd::PropertyContainer>();
+	auto& containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
 
 	for (auto& container : { containerA , containerA1, containerA2, containerA2A, containerA2B, containerB })
-		ASSERT_TRUE(container->getProperty(StringPD) == "Am I propagated to all children?");
-}
-
-TEST(CppPropertiesTest, TestHierarchies_setAfterRoot_notVisibleForParents)
-{
-	pd::PropertyContainer rootContainer;
-
-	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
-	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
-	
-	auto containerA2 = containerA->addChildContainer<pd::PropertyContainer>();
-	containerA2->setProperty(StringPD, "Am I propagated to all children?");
-	auto containerA2A = containerA2->addChildContainer<pd::PropertyContainer>();
-	auto containerA2B = containerA2->addChildContainer<pd::PropertyContainer>();
-	
-	auto containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
-
-	for (auto& container : { containerA2, containerA2A, containerA2B })
-		ASSERT_TRUE(container->getProperty(StringPD) == "Am I propagated to all children?");
-
-	for (auto& container : { &rootContainer, containerA, containerA1, containerB })
-		ASSERT_FALSE(container->getProperty(StringPD) == "Am I propagated to all children?");
-
+		ASSERT_TRUE(container.getProperty(StringPD) == "Am I propagated to all children?");
 }
 
 TEST(CppPropertiesTest, TestHierarchies_setDifferentValues_onlyVisibleUntilSet)
 {
 	pd::PropertyContainer rootContainer;
-	
-	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
-	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
-	
-	auto containerA2 = containerA->addChildContainer<pd::PropertyContainer>();
-	auto containerA2A = containerA2->addChildContainer<pd::PropertyContainer>();
-	auto containerA2B = containerA2->addChildContainer<pd::PropertyContainer>();
-	auto containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
 
-	containerA2->setProperty(StringPD, "A2 String!");
+	auto& containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto& containerA1 = containerA.addChildContainer<pd::PropertyContainer>();
+		
+	auto& containerA2 = containerA.addChildContainer<pd::PropertyContainer>();
+	auto& containerA2A = containerA2.addChildContainer<pd::PropertyContainer>();
+	auto& containerA2B = containerA2.addChildContainer<pd::PropertyContainer>();
+	auto& containerB = rootContainer.addChildContainer<pd::PropertyContainer>();
+
+	containerA2.setProperty(StringPD, "A2 String!");
 	rootContainer.setProperty(StringPD, "Root String!");
 
-	for (auto& container : { &rootContainer, containerA, containerA1, containerB})
-		ASSERT_TRUE(container->getProperty(StringPD) == "Root String!");
+	for (auto& container : { rootContainer, containerA, containerA1, containerB })
+		ASSERT_TRUE(container.getProperty(StringPD) == "Root String!");
 
 	for (auto& container : { containerA2, containerA2A, containerA2B })
-		ASSERT_TRUE(container->getProperty(StringPD) == "A2 String!");
+		ASSERT_TRUE(container.getProperty(StringPD) == "A2 String!");
 
 }
-struct TestStruct
-{
-	void func() { std::cout << "Hello World!"; };
-};
 
-TEST(CppPropertiesTest, TestSubjectObserver)
+TEST(CppPropertiesTest, TestHierarchies_removeProperty_parentPropertyVisible)
 {
-	pd::PropertyContainerBase rootContainer;
+	pd::PropertyContainer rootContainer;
+	auto& containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto& containerA1 = containerA.addChildContainer<pd::PropertyContainer>();
+
+	containerA.setProperty(StringPD, "Container A!");
+	rootContainer.setProperty(StringPD, "Root String!");
+
+	containerA.removeProperty(StringPD);
+
+	ASSERT_TRUE(containerA1.getProperty(StringPD) == "Root String!");
+}
+
+TEST(CppPropertiesTest, TestHierarchies_changeParentProperty_NotVisibleForChildren)
+{
+	pd::PropertyContainer rootContainer;
+	auto& containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto& containerA1 = containerA.addChildContainer<pd::PropertyContainer>();
+
+	containerA.setProperty(StringPD, "Container A!");
+	rootContainer.setProperty(StringPD, "Root String!");
+
+	rootContainer.changeProperty(StringPD, "New Root Value");
+
+	ASSERT_TRUE(containerA1.getProperty(StringPD) == "Container A!");
+}
+
+//###########################################################################
+//#
+//#                    PropertyContainer Tests       
+//#					   Signals and connections
+//#
+//###########################################################################
+
+TEST(CppPropertiesTest, TestSignals_connectAndChangeProperty_lambdaCallBack)
+{
+	pd::PropertyContainer rootContainer;
 	int observerFuncCalledCount = 0;
 	auto observerFunc = [&observerFuncCalledCount]() { observerFuncCalledCount++; };
+	
 	rootContainer.connect(IntPD, observerFunc);
 	rootContainer.setProperty(IntPD, 5);
 	rootContainer.emit();
-	ASSERT_TRUE(observerFuncCalledCount == 1);
 	rootContainer.changeProperty(IntPD, 6);
 	rootContainer.emit();
+	
 	ASSERT_TRUE(observerFuncCalledCount == 2);
-	auto containerA = rootContainer.addChildContainer<pd::PropertyContainer>();
-	auto containerA1 = containerA->addChildContainer<pd::PropertyContainer>();
-	containerA1->connect(IntPD, observerFunc);
-	containerA1->setProperty(IntPD, 10);
+}
+
+TEST(CppPropertiesTest, TestSignals_connectToParentProperty_lambdaCallBack)
+{
+	pd::PropertyContainer rootContainer;
+	auto& childContainer = rootContainer.addChildContainer<pd::PropertyContainer>();
+	int observerFuncCalledCount = 0;
+	auto observerFunc = [&observerFuncCalledCount]() { observerFuncCalledCount++; };
+	
+	childContainer.connect(IntPD, observerFunc);
+	rootContainer.setProperty(IntPD, 5);
 	rootContainer.emit();
-	containerA1->removeProperty(IntPD);
+	rootContainer.changeProperty(IntPD, 6);
 	rootContainer.emit();
-	ASSERT_TRUE(observerFuncCalledCount == 4);
-	//here we test if we get 2 updates with the emit false option
-	rootContainer.changeProperty(IntPD, IntPD.getDefaultValue());
-	rootContainer.emit(false);
-	ASSERT_TRUE(observerFuncCalledCount == 6);
-	//the value doesn't change, so we will not trigger an update
+	
+	ASSERT_TRUE(observerFuncCalledCount == 2);
+}
+
+TEST(CppPropertiesTest, TestSignals_removeProperty_lambdaCallBack)
+{
+	pd::PropertyContainer rootContainer;
+	auto& childContainer = rootContainer.addChildContainer<pd::PropertyContainer>();
+	auto& childChildContainer = childContainer.addChildContainer<pd::PropertyContainer>();
+	
+	int observerFuncCalledCount = 0;
+	auto observerFunc = [&observerFuncCalledCount]() { observerFuncCalledCount++; };
+	childChildContainer.connect(IntPD, observerFunc);
+	
+	//first trigger
+	rootContainer.setProperty(IntPD, 5);
+	rootContainer.emit();
+
+	//second trigger
+	childContainer.setProperty(IntPD, 10);
+	rootContainer.emit();
+	
+	//value doesn't change, since it's still set on the child container
 	rootContainer.removeProperty(IntPD);
 	rootContainer.emit();
-	ASSERT_TRUE(observerFuncCalledCount == 6);
+
+	ASSERT_TRUE(observerFuncCalledCount == 2);
+	
+	childContainer.removeProperty(IntPD);
+	rootContainer.emit();
+
+	ASSERT_TRUE(observerFuncCalledCount == 3);
 }
 
 TEST(CppPropertiesTest, TestPMFOnlyAddedOnce)

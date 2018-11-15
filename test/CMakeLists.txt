@@ -23,7 +23,7 @@ add_subdirectory(${CMAKE_BINARY_DIR}/googletest-src
 
 enable_testing()
 # Now simply link against gtest or gtest_main as needed. Eg
-add_executable(CppProperties_test src/main.cpp)
+add_executable(CppProperties_test src/test.cpp)
 target_compile_features(CppProperties_test PRIVATE cxx_std_17)
 target_link_libraries(CppProperties_test gtest_main CppProperties::cppproperties)
 

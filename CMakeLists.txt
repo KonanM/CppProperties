@@ -10,23 +10,9 @@ list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_SOURCE_DIR}/cmake)
 
 ##############################################
 # Create target and set properties
+SET(HeaderFiles include/cppproperties/PropertyContainer.h include/cppproperties/PropertyDescriptor.h)
+
 add_library(cppproperties INTERFACE)
-
-# target_sources(cppproperties INTERFACE 
-	# include/cppproperties/PropertyContainer.h 
-# )
-if(MSVC)
-    add_custom_target(cppproperties.header SOURCES include/cppproperties/PropertyContainer.h include/cppproperties/PropertyDescriptor.h)
-endif()
-  # add_library(cppproperties
-      # include/cppproperties/PropertyContainer.h
-	  # include/cppproperties/PropertyDescriptor.h
-  # )
-
-
-
-#Add an alias so that library can be used inside the build tree, e.g. when testing
-add_library(CppProperties::cppproperties ALIAS cppproperties)
 
 #Set target properties
 target_include_directories(cppproperties INTERFACE
@@ -36,12 +22,12 @@ target_include_directories(cppproperties INTERFACE
 
 target_compile_features(cppproperties INTERFACE cxx_std_17)
 
- # target_link_libraries(cppproperties
-      # PUBLIC
-       
-      # PRIVATE
+if(MSVC)
+    add_custom_target(cppproperties.header SOURCES ${HeaderFiles})
+endif()
 
- # )
+#Add an alias so that library can be used inside the build tree, e.g. when testing
+add_library(CppProperties::cppproperties ALIAS cppproperties)
 
 ##############################################
 # Installation instructions

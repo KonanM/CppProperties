@@ -264,13 +264,13 @@ namespace pd
 			});
 		}
 		template<typename ContainerT, typename... Args>
-		PropertyContainerBase* addChildContainer(Args&& ...args)
+		[[maybe_unused]] PropertyContainerBase& addChildContainer(Args&& ...args)
 		{
 			return addChildContainer(std::make_unique<ContainerT>(std::forward<Args>(args)...));
 		}
 
 		//use this to build the property container tree structure
-		PropertyContainerBase* addChildContainer(std::unique_ptr<PropertyContainerBase> propertyContainer)
+		[[maybe_unused]] PropertyContainerBase& addChildContainer(std::unique_ptr<PropertyContainerBase> propertyContainer)
 		{
 			auto propertyContainerPtr = propertyContainer.get();
 			propertyContainer->setParent(this);
@@ -288,7 +288,7 @@ namespace pd
 			}
 
 			m_children.emplace_back(std::move(propertyContainer));
-			return propertyContainerPtr;
+			return *propertyContainerPtr;
 		}
 		//the emit step looks like:
 		//1. collect all signals belonging to properties that changed since the last update
@@ -329,10 +329,18 @@ namespace pd
 					for (auto& dirtySignal : dirtyProperty->connectedSignals)
 						dirtySignal->emit(newValue);
 				}
-
-				
 			}
+			//TODO: check if we need to support duplicate signal resolving for removed properties
+			for (auto& removedProperty : m_removedProperies)
+			{
+				for (auto& dirtySignal : removedProperty.connectedSignals)
+				{
+					dirtySignal->emit(removedProperty.value);
+				}
+			}
+				
 			m_changedProperties.clear();
+			m_removedProperies.clear();
 			for (auto& child : m_children)
 				child->emit(ignoreDuplicateCalls);
 		}
@@ -474,31 +482,38 @@ namespace pd
 		void removePropertyInternal(const PropertyDescriptor<T>& pd)
 		{
 			auto& propertyData = m_propertyData[&pd];
-			//copy all the subject ptrs
-			auto oldSubjects = propertyData.connectedSignals;
+			//copy the old signal ptr
+			auto oldSignals = propertyData.connectedSignals;
 
 			T oldValue = getProperty(pd);
 			//we have to update all children and tell it which is the correct owning property container
 			auto newContainer = m_parent ? m_parent->getOwningPropertyContainer(pd) : nullptr;
 			setParentContainerForProperty(pd, newContainer);
-			//we also have to add all the signals from this level to the owning container
+			//we have to add all the signals from this level to the new owning container
 			if (newContainer)
-				newContainer->addSignals(pd, oldSubjects);
+			{
+				newContainer->addSignals(pd, oldSignals);
+				
+				auto newValue = newContainer->getProperty(pd);
+				if (newValue != oldValue)
+				{
+					//TODO: this is not completely correct as we only need to trigger the old observers
+					newContainer->touchPropertyInternal(pd);
+				}
+			}
+			else if(!oldSignals.empty())
+			{
+				//there are still observers, but no new container
+				//we need to signal the default value to the observers
+				auto& removedProperty = m_removedProperies.emplace_back();
+				removedProperty.value = pd.getDefaultValue();
+				removedProperty.connectedSignals = std::move(oldSignals);
+			}
+
 			//now we remove the property data
 			if (propertyData.proxyProperty)
 				removeProxyProperty(propertyData.proxyProperty);
 			m_propertyData.erase(&pd);
-			//notify all old signals (if necessary)
-			if (newContainer)
-			{
-				//we could add a slight optimization here (only 1 lookup)
-				//by getting the propertyData and do the steps manually
-				auto newValue = newContainer->getProperty(pd);
-				if (newValue != oldValue)
-				{
-					newContainer->touchPropertyInternal(pd);
-				}
-			}
 		}
 
 		template<typename T>
@@ -566,15 +581,18 @@ namespace pd
 		struct Property
 		{
 			std::any value;
+			//this flag is an optimization to indicate that a property has changed
+			bool isDirty = false;
 			//in theory we could also put the proxy property base ptr into the any,
 			//or use a variant, but I think the minimal memory overhead is a price
 			//I'm happy to pay (vs. compile time overhead of std::variant)
 			ProxyPropertyBase* proxyProperty = nullptr;
 			std::vector<Signal*> connectedSignals;
-			bool isDirty = false;
+			
 		};
 		MapT<KeyT, Property> m_propertyData;
 		std::vector<Property*> m_changedProperties;
+		std::vector<Property> m_removedProperies;
 	};
 
 	//###########################################################################
@@ -719,9 +737,9 @@ namespace pd
 		{
 			using PMF = PMF_traits<pmfT>;
 			static_assert(std::is_same_v<classT, std::remove_const_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
-			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &valPtrPtr = m_proptertyPtrPtr]()
+			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &valPtrPtr = m_proptertyPtr]()
 			{
-				(inst->*func)(std::any_cast<T>(**valPtrPtr));
+				(inst->*func)(std::any_cast<T>(*valPtrPtr));
 			});
 		}
 
@@ -730,9 +748,9 @@ namespace pd
 		template<typename T, typename FuncT>
 		void connect(FuncT&& func)
 		{
-			m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<pmfT>(func), &valPtrPtr = m_proptertyPtrPtr]()
+			m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<pmfT>(func), &valPtrPtr = m_proptertyPtr]()
 			{
-				func(std::any_cast<T>(**valPtrPtr));
+				func(std::any_cast<T>(*valPtrPtr));
 			});
 		}
 
@@ -762,19 +780,16 @@ namespace pd
 		}
 		void merge(std::unordered_map<std::type_index, const std::function<void()>&>& slots) const 
 		{
-			for (auto&[typeIndex, func] : m_slots)
+			for (auto& [typeIndex, func] : m_slots)
 				slots.emplace(typeIndex, func);
 		}
 
 	protected:
 
 		std::unordered_map<std::type_index, std::function<void()>> m_slots;
-		//I know ptr ptr are always ugly, but when I create the wrapper lambda functions
-		//the address of the any value is not known
-		//the alternative would be a full copy in the emit, but this could be quite costly in the case of things like std::string
-
+		//we need to keep a ptr to a std::any as member, since the lambdas stored inside
+		//the slots reference it
 		mutable std::any* m_proptertyPtr;
-		mutable std::any** m_proptertyPtrPtr = &m_proptertyPtr;
 	};
 
 
