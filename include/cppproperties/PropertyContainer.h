@@ -39,7 +39,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace pd
+namespace ps
 {
 	template<template<typename ...> class MapT = std::unordered_map>
 	class PropertyContainerBase;
@@ -88,7 +88,7 @@ namespace pd
 		//since we use unique_ptr we have to implement it ourselves
 		PropertyContainerBase(const PropertyContainerBase& other)
 			: m_toContainer(other.m_toContainer)
-			, m_toTypedSignal(other.m_toTypedSignal)
+			, m_toSignal(other.m_toSignal)
 			, m_propertyData(other.m_propertyData)
 		{
 			m_children.resize(other.m_children.size());
@@ -172,8 +172,8 @@ namespace pd
 		}
 
 		//interface to check if a property has been set
-		//if getting the default value, when no property is set is not intended use case
-		//use this function to check for it first
+		//if getting the default value (when no property is set) is not intended use case
+		//use hasProperty to check if the property has been set already
 		template<typename T>
 		bool hasProperty(const PropertyDescriptor<T>& pd) const
 		{
@@ -208,7 +208,7 @@ namespace pd
 		{
 			using PMF = PMF_traits<FuncT>;
 			//get / construct the signal if needed
-			auto& signal = m_toTypedSignal[&pd];
+			auto& signal = m_toSignal[&pd];
 
 			//case 1: function object callable with argument of type T
 			if constexpr (std::is_invocable_v<FuncT, T>)
@@ -249,7 +249,7 @@ namespace pd
 		template<typename T>
 		void disconnect(const PropertyDescriptor<T>& pd)
 		{
-			if (auto& typedSignal = m_toTypedSignal[&pd]; typedSignals.has_value())
+			if (auto& typedSignal = m_toSignal[&pd]; typedSignals.has_value())
 				std::any_cast<Signal<T>&>(typedSignal).disconnect();
 		}
 		//here can can connect a property to a variable
@@ -455,7 +455,7 @@ namespace pd
 		void getAllSignals(const PropertyDescriptor<T>& pd, std::vector<Signal*>& connectedSignals)
 		{
 			//add own subject
-			if (auto subjectIt = m_toTypedSignal.find(&pd); subjectIt != end(m_toTypedSignal))
+			if (auto subjectIt = m_toSignal.find(&pd); subjectIt != end(m_toSignal))
 				connectedSignals.push_back(&(subjectIt->second));
 
 			//add the signals of all children unless they own property data themselves
@@ -576,8 +576,9 @@ namespace pd
 		PropertyContainerBase* m_parent = nullptr;
 
 		MapT<KeyT, PropertyContainerBase*> m_toContainer;
-		//we could also store the signal directly in the property
-		MapT<KeyT, Signal> m_toTypedSignal;
+		//we are storing the signals independent from the property, because 
+		//it's possible to observe an property even if it's not set
+		MapT<KeyT, Signal> m_toSignal;
 		struct Property
 		{
 			std::any value;
@@ -588,9 +589,9 @@ namespace pd
 			//I'm happy to pay (vs. compile time overhead of std::variant)
 			ProxyPropertyBase* proxyProperty = nullptr;
 			std::vector<Signal*> connectedSignals;
-			
 		};
 		MapT<KeyT, Property> m_propertyData;
+
 		std::vector<Property*> m_changedProperties;
 		std::vector<Property> m_removedProperies;
 	};
@@ -616,7 +617,7 @@ namespace pd
 		{
 			if (m_dirtyCallBack.propertyData)
 			{
-				m_dirtyCallBack(*this);
+				m_dirtyCallBack(*m_parent);
 			}
 		}
 		void setDirtyCallback(DirtyCallback&& dirtyCallback)
@@ -748,7 +749,7 @@ namespace pd
 		template<typename T, typename FuncT>
 		void connect(FuncT&& func)
 		{
-			m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<pmfT>(func), &valPtrPtr = m_proptertyPtr]()
+			m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<FuncT>(func), &valPtrPtr = m_proptertyPtr]()
 			{
 				func(std::any_cast<T>(*valPtrPtr));
 			});
