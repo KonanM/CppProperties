@@ -7,6 +7,6 @@ The implementation is a header only modern C++17 library, which does not rely on
 * Can store arbitrary values (with std::any as underyling storage) and provides a type safe way for accessing them.
 * Provides an easy to use interface to connect properties to arbitrary callbacks 
 * Can be used in a property hierarchy, which works similar to css. All properties from a parent are visible for it's children unless the child provides the property itself
-* Registering a property for the first time is the only expensive operation. Changing a property is on average linear complexity (two lookup in an unordered map)
+* Registering a property for the first time is the only expensive operation. Changing a property is quite cheap (two lookups in an unordered map) and triggering the property changed callbacks is linear with regards to changed properties.
 
 ## Examples

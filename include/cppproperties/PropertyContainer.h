@@ -54,14 +54,14 @@ namespace ps
 	//pointer to member function utilities
 
 	template<typename>
-	struct PMF_traits 
+	struct PMF_traits
 	{
 		using member_type = void;
 		using class_type = void;
 	};
 
 	template<class T, class U>
-	struct PMF_traits<U T::*> 
+	struct PMF_traits<U T::*>
 	{
 		using member_type = typename U;
 		using class_type = typename T;
@@ -73,7 +73,7 @@ namespace ps
 	//#                        PropertyContainer                               
 	//#
 	//############################################################################
-	
+
 	template<template<typename ...> class MapT>
 	class PropertyContainerBase
 	{
@@ -100,7 +100,7 @@ namespace ps
 		//owned proxy properties, an option could be to try a variant for this
 		//or simply use a second vector to store proxy properties
 		virtual ~PropertyContainerBase() = default;
-		
+
 
 		//getProperty returns the value for the provided PD
 		//if the property is not set, the default value will be returned
@@ -116,7 +116,7 @@ namespace ps
 			{
 				return pd.getDefaultValue();
 			}
-				
+
 			//first find out in which container the property is stored, then get the value from
 			//that container
 			auto& container = *containerIt->second;
@@ -203,62 +203,67 @@ namespace ps
 		//whenever the property changes the function will get called
 		//you can either connect to a function without arguments or one that is callable
 		//by the type of the property
+		//the returned type index can be used to disconnect the connected function
 		template<typename T, typename FuncT>
-		void connect(const PropertyDescriptor<T>& pd, FuncT&& func)
+		[[maybe_unused]] std::type_index connect(const PropertyDescriptor<T>& pd, FuncT&& func)
 		{
 			using PMF = PMF_traits<FuncT>;
 			//get / construct the signal if needed
 			auto& signal = m_toSignal[&pd];
 
+			auto containerIt = m_toContainer.find(&pd);
+			if (containerIt != end(m_toContainer))
+				containerIt->second->addSignal(pd, &signal);
+
 			//case 1: function object callable with argument of type T
 			if constexpr (std::is_invocable_v<FuncT, T>)
 			{
-				signal.connect<T>(std::forward<FuncT>(func));
+				return signal.connect<T>(std::forward<FuncT>(func));
 			}
 			//case 2: pointer of member function with argument of type T
 			
 			else if constexpr (std::is_invocable_v<typename PMF::member_type, T>)
 			{
-				signal.connect<T>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+				return signal.connect<T>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
 			}
 			//the last two should be used if we want multiple properties to trigger the same method
 			//e.g. we have to recalulate something when any of the properties the result depends on changes
 			//case 3: callable functor with no argument
 			else if constexpr (std::is_function_v<typename PMF::member_type>)
 			{
-				signal.connect(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+				return signal.connect<void>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
 			}
 			//case 4: pointer of member function with no argument
-
 			else if constexpr (std::is_invocable_v<FuncT>)
 			{
-				signal.connect(std::forward<FuncT>(func));
+				return signal.connect<void>(std::forward<FuncT>(func));
 			}
 			else
 			{
 				static_assert(false,  "Argument is not a valid callable functor. "
 									  "Argument should be convertible to std::function<void()> or std::function<void(T)>");
 			}
-			
-			auto containerIt = m_toContainer.find(&pd);
-			if(containerIt != end(m_toContainer))
-				containerIt->second->addSignal(pd, &signal);
 		}
 
-		//for now we can only disconnect all the functions connect attached to a certain property
+		//disconnect all the functions connect attached to a certain property
 		template<typename T>
 		void disconnect(const PropertyDescriptor<T>& pd)
 		{
-			if (auto& typedSignal = m_toSignal[&pd]; typedSignals.has_value())
-				std::any_cast<Signal<T>&>(typedSignal).disconnect();
+			m_toSignal[&pd].disconnect();
+		}
+		//disconnect the function with the given type index
+		template<typename T>
+		void disconnect(const PropertyDescriptor<T>& pd, std::type_index idx)
+		{
+			m_toSignal[&pd].disconnect(idx);
 		}
 		//here can can connect a property to a variable
 		//be aware this can crash if the provided variable goes out of scope
 		//so it should only be used for member variables
 		template<typename T>
-		void connectToVar(const PropertyDescriptor<T>& pd, T& memberVariable)
+		std::type_index connectToVar(const PropertyDescriptor<T>& pd, T& memberVariable)
 		{
-			connect(pd, [&memberVariable](const T& newValue)
+			return connect<T>(pd, [&memberVariable](const T& newValue)
 			{
 				memberVariable = newValue;
 			});
@@ -720,52 +725,59 @@ namespace ps
 	public:
 		Signal() = default;
 
-		//// connects a member function without argument to this 
-		template <typename classT, typename pmfT>
-		void connect(classT *inst, pmfT&& func)
-		{
-			using PMF = PMF_traits<pmfT>;
-			static_assert(std::is_same_v<classT, std::remove_const_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
-			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func]()
-			{
-				(inst->*func)();
-			});
-		}
-
 		//// connects a member function with an argument of type T to this signal
-		template <typename T, typename classT, typename pmfT, typename = T /*reject void argument PMF*/>
-		void connect(classT *inst, pmfT&& func)
+		template <typename T, typename classT, typename pmfT>
+		std::type_index connect(classT *inst, pmfT&& func)
 		{
 			using PMF = PMF_traits<pmfT>;
-			static_assert(std::is_same_v<classT, std::remove_const_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
-			m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &valPtrPtr = m_proptertyPtr]()
+			static_assert(std::is_same_v<classT, std::decay_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
+			if constexpr (std::is_same_v<T, void>)
 			{
-				(inst->*func)(std::any_cast<T>(*valPtrPtr));
-			});
+				m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func]()
+				{
+					(inst->*func)();
+				});
+			}
+			else
+			{
+				m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &valPtr = m_proptertyPtr]()
+				{
+					(inst->*func)(std::any_cast<T>(*valPtr));
+				});
+			}
+
+			return std::type_index(typeid(pmfT));
 		}
 
 
 		// connects a callable function with an argument of type T to the signal
 		template<typename T, typename FuncT>
-		void connect(FuncT&& func)
+		std::type_index connect(FuncT&& func)
 		{
-			m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<FuncT>(func), &valPtrPtr = m_proptertyPtr]()
+			if constexpr (std::is_same_v<T, void>)
 			{
-				func(std::any_cast<T>(*valPtrPtr));
-			});
-		}
+				m_slots.try_emplace(std::type_index(typeid(FuncT)), std::forward<FuncT>(func));
+			}
+			else
+			{
+				m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<FuncT>(func), &valPtr = m_proptertyPtr]()
+				{
+					func(std::any_cast<T>(*valPtr));
+				});
+			}
 
-		//// connects a callable function to this Signal
-		template<typename FuncT>
-		void connect(FuncT&& slot)
-		{
-			m_slots.try_emplace(std::type_index(typeid(FuncT)), std::forward<FuncT>(slot));
+			return std::type_index(typeid(FuncT));
 		}
 
 		// disconnects all previously connected functions
 		void disconnect() 
 		{
 			m_slots.clear();
+		}
+		//disconnects the function with the given type index
+		void disconnect(std::type_index idx)
+		{
+			m_slots.erase(idx);
 		}
 
 		// calls all connected functions

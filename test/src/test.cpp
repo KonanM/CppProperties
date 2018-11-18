@@ -376,6 +376,36 @@ TEST(CppPropertiesTest, TestSignals_connectToVar_varTakesValue)
 	ASSERT_TRUE(rootContainer.dirtyInt == 3234);
 }
 
+TEST(CppPropertiesTest, TestSignals_disconnectSingle_NoUpdateCall)
+{
+	ps::PropertyContainer rootContainer;
+	rootContainer.setProperty(IntPD, 0);
+	int localInt = 42;
+	auto idx = rootContainer.connectToVar(IntPD, localInt);
+
+	rootContainer.changeProperty(IntPD, 3234);
+	rootContainer.disconnect(IntPD, idx);
+	rootContainer.emit();
+
+	ASSERT_TRUE(localInt == 42);
+}
+
+TEST(CppPropertiesTest, TestSignals_disconnectAll_NoUpdateCall)
+{
+	IntPP rootContainer;
+	rootContainer.setProperty(IntPD, 0);
+	int localInt = 42;
+	rootContainer.connectToVar(IntPD, localInt);
+	rootContainer.connectToVar(IntPD, rootContainer.dirtyInt);
+
+	rootContainer.changeProperty(IntPD, 3234);
+	rootContainer.disconnect(IntPD);
+	rootContainer.emit();
+
+	ASSERT_TRUE(rootContainer.dirtyInt != 3234);
+	ASSERT_TRUE(localInt == 42);
+}
+
 
 int main(int argc, char **argv)
 {
