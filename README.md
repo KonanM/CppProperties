@@ -1,6 +1,7 @@
 # PropertySystem 
 This library is basically inspired by the [Qt property system](http://doc.qt.io/qt-5/properties.html) and provides a very similar set of features without relying on something like a (meta) object system.
 The implementation is a header only modern C++17 library, which does not rely on macros, but on template metaprogramming.
+I found a few similar libraries, especially in [C#](https://www.codeproject.com/Articles/450344/A-Simple-Csharp-Property-System), and also some in [C++](http://www.academia.edu/401854/A_Generic_Data_Structure_for_An_Architectural_Design_Application), but most C++ implementation relied on macros or didn't offer a functionality to connect a callback when a property changes.
 
 ## Design Goals
 

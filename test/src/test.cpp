@@ -1,8 +1,61 @@
 #include <gtest/gtest.h>
 #include <cppproperties/PropertyContainer.h>
+#include <cppproperties/ConvertingProxyProperty.h>
 ps::PropertyDescriptor<int> IntPD(0);
 ps::PropertyDescriptor<std::string> StringPD("Empty");
 ps::PropertyDescriptor<int*> IntPtrPD(nullptr);
+
+//###########################################################################
+//#
+//#                    Property Tests     
+//#                      set, change, get
+//#
+//###########################################################################
+
+TEST(PropertyTest, getAndSet_value42_get42)
+{
+	ps::Property<int> intP(42);
+	ASSERT_TRUE(intP() == 42);
+}
+
+TEST(PropertyTest, onPropertyChanged_connectWithLambda_applyNewValue)
+{
+	ps::Property<int> intP(42);
+	int newVal;
+
+	//implementation of on property changed
+	intP += [&newVal](int newValue) {newVal = newValue;};
+	intP.set(3528);
+
+	ASSERT_TRUE(newVal == 3528);
+}
+
+TEST(PropertyTest, onPropertyChanged_disconnectLambda_oldValue)
+{
+	ps::Property<int> intP(42);
+	int newVal = intP();
+
+	//implementation of on property changed
+	auto lambda = [&newVal](int newValue) {newVal = newValue;};
+	intP += lambda;
+	intP -= lambda;
+	intP.set(3528);
+
+	ASSERT_TRUE(newVal == 42);
+}
+
+TEST(PropertyTest, onPropertyChanged_disconnectByTypeIndex_oldValue)
+{
+	ps::Property<int> intP(42);
+	int newVal = intP();
+
+	//implementation of on property changed
+	auto disconnector = intP += [&newVal](int newValue) {newVal = newValue;};
+	intP -= disconnector;
+	intP.set(3528);
+
+	ASSERT_TRUE(newVal == 42);
+}
 
 //###########################################################################
 //#
@@ -115,7 +168,7 @@ TEST(PropertyContainerTest, setMultipleProperties_getProperty_newValue)
 class SimpleIntPP : public ps::ProxyProperty<int>
 {
 public:
-	int get() const final
+	int get() const noexcept final
 	{
 		return 42;
 	}
@@ -182,6 +235,7 @@ TEST(CppPropertiesTest, makeProxyProperty_matchString_findHello)
 	ASSERT_FALSE(root.getProperty(StringContainsHelloPD));
 	
 	root.setProperty(StringPD, "Hello World!");
+	root.emit();
 	ASSERT_TRUE(root.getProperty(StringContainsHelloPD));
 }
 
@@ -189,7 +243,8 @@ TEST(CppPropertiesTest, makeProxyProperty_matchString_findHello)
 class IntPP : public ps::ProxyProperty<int>
 {
 public:
-	int get() const final
+	IntPP() = default;
+	int get() const noexcept override
 	{
 		return 42;
 	}
@@ -201,10 +256,7 @@ public:
 	{
 		dirtyInt+=i;
 	}
-	std::unique_ptr<ProxyPropertyBase> clone() override
-	{
-		return std::make_unique<IntPP>(*this);
-	}
+
 	bool isDirty = false;
 	int dirtyInt = 0;
 };
