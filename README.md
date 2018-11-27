@@ -37,21 +37,27 @@ A property container can be used to store multiple properties of any type. A typ
 ps::PropertyDescriptor<int> IntPD(42, "SliderValue");
 
 ps::PropertyContainer propertyContainer;
-
+//if the property has not been set, the default value is (of the PD) is returned
 int defaultValue = propertyContainer.getValue(IntPD); //property hasn't been set, the default value is returned
 
+//each container has it's own signal per PD which we can connect to
+//the signals are emitted asnychronously
 auto disconnectIdx = propertyContainer.connect(IntPD, [](){ std::cout << "IntPD got changed"; });
 //use setProperty to set a new property
 propertyContainer.setProperty(1);
 //use changeProperty to change a property after it has been set as it is more efficient
 propertyContainer.changeProperty(2);
 
-propertyContainer.removeProperty(IntPD);
+
+//emit the signals for all properties that have changed
+propertyContainer.emit();
 
 ```
 
+
+
 ### PropertyContainer Hierarchies
-This feature has actually inspired the whole library, if you don't need this I would actually rather recommend something like [https://zajo.github.io/boost-synapse/](boost synapse). I have seen a property hierarchy in action once in a multi million LOC C++ codebase where it was one of the basic pillars of the software architecture, quite similar to [QObject from Qt](http://doc.qt.io/qt-5/qobject.html).
+This feature has actually inspired the whole library, if you don't need this I would actually rather recommend something like [boost synapse](https://zajo.github.io/boost-synapse/). I have seen a property hierarchy in action once in a multi million LOC C++ codebase where it was one of the basic pillars of the software architecture, quite similar to [QObject from Qt](http://doc.qt.io/qt-5/qobject.html).
 It probably makes sense to derive from ps::PropertyContainer if you need to use a class within a property hierarchy (it's not a requirement though).
 
 **Why would I want to use this feature?**
@@ -59,7 +65,8 @@ It probably makes sense to derive from ps::PropertyContainer if you need to use 
 * Makes all classes that derive from ps::PropertyContainer easily extensible by new properties.
 * Gives you the decorator pattern for free, which for example makes factories very customiziable.
 * All properties from parent containers can be queried, making things like injecting certain properties super easy. You don't have to pass properties along the property hierarchy, to be able to access a property somewhere down the hierarchy. 
-* It's very easy to provide custom implementations for certain properties to make things easily testable.
+* It's very easy to provide custom implementations for certain properties to make things easily testable. 
+* Makes it trivial to switch things like a logger - or similar custom classes - at runtime. 
 
 
 ```cpp

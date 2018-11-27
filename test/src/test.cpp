@@ -15,7 +15,7 @@ ps::PropertyDescriptor<int*> IntPtrPD(nullptr);
 TEST(PropertyTest, getAndSet_value42_get42)
 {
 	ps::Property<int> intP(42);
-	ASSERT_TRUE(intP() == 42);
+	ASSERT_TRUE(intP == 42);
 }
 
 TEST(PropertyTest, onPropertyChanged_connectWithLambda_applyNewValue)
@@ -33,7 +33,7 @@ TEST(PropertyTest, onPropertyChanged_connectWithLambda_applyNewValue)
 TEST(PropertyTest, onPropertyChanged_disconnectLambda_oldValue)
 {
 	ps::Property<int> intP(42);
-	int newVal = intP();
+	int newVal = intP;
 
 	//implementation of on property changed
 	auto lambda = [&newVal](int newValue) {newVal = newValue;};
@@ -47,7 +47,7 @@ TEST(PropertyTest, onPropertyChanged_disconnectLambda_oldValue)
 TEST(PropertyTest, onPropertyChanged_disconnectByTypeIndex_oldValue)
 {
 	ps::Property<int> intP(42);
-	int newVal = intP();
+	int newVal = intP;
 
 	//implementation of on property changed
 	auto disconnector = intP += [&newVal](int newValue) {newVal = newValue;};
@@ -232,7 +232,7 @@ TEST(CppPropertiesTest, makeProxyProperty_matchString_findHello)
 	};
 	auto proxyP = ps::make_proxy_property(findString, StringPD);
 	root.setProperty(StringContainsHelloPD, std::move(proxyP));
-	ASSERT_FALSE(root.getProperty(StringContainsHelloPD));
+	ASSERT_FALSE(root.getProperty(StringContainsHelloPD).get());
 	
 	root.setProperty(StringPD, "Hello World!");
 	root.emit();

@@ -18,7 +18,7 @@ namespace ps
 		Property(const Property<T>& that) = default;
 		Property(Property<T>&& that) = default;
 
-		Property(const T& val)
+		explicit Property(const T& val)
 			: m_value(val) {}
 
 		// assigns a new value to this Property
@@ -88,7 +88,12 @@ namespace ps
 		}
 
 		// returns the value of this Property
-		const T& operator()() const noexcept
+		[[nodiscard]] operator T() const noexcept
+		{
+			return get();
+		}
+
+		[[nodiscard]] const T& operator()() const noexcept
 		{
 			return get();
 		}
@@ -97,4 +102,36 @@ namespace ps
 		Signal m_signal;
 		T m_value;
 	};
+
+	//comparision operator implementation
+	template<typename T, typename U>
+	bool operator==(const Property<T>& property, const U& value)
+	{
+		return property.get() == value;
+	}
+	template<typename T, typename U>
+	bool operator!=(const Property<T>& property, const U& value)
+	{
+		return !(property == value);
+	}
+	template<typename T, typename U>
+	bool operator<(const Property<T>& property, const U& value)
+	{
+		return property.get() < value;
+	}
+	template<typename T, typename U>
+	bool operator>(const Property<T>& property, const U& value)
+	{
+		return property.get() < value;
+	}
+	template<typename T, typename U>
+	bool operator<=(const Property<T>& property, const U& value)
+	{
+		return property.get() <= value;
+	}
+	template<typename T, typename U>
+	bool operator>=(const Property<T>& property, const U& value)
+	{
+		return property.get() >= value;
+	}
 }

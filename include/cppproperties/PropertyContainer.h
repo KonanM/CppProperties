@@ -66,26 +66,26 @@ namespace ps
 		//only cater the excpetional use case and the optional can also be
 		//used by the caller
 		template<typename T>
-		T getProperty(const PropertyDescriptor<T>& pd) const
+		[[nodiscard]] Property<T> getProperty(const PropertyDescriptor<T>& pd) const
 		{
 			auto containerIt = m_toContainer.find(&pd);
 			//check if a property has never been set -> return the default value
 			if (containerIt == end(m_toContainer))
 			{
-				return pd.getDefaultValue();
+				return Property<T>(pd.getDefaultValue());
 			}
 
 			//first find out in which container the property is stored, then get the value from
 			//that container
 			auto& container = *containerIt->second;
 			auto propertyData = container.getPropertyInternal(pd);
-			return propertyData ? propertyData->get() : pd.getDefaultValue();
+			return propertyData ? *propertyData : Property<T>(pd.getDefaultValue());
 		}
 
 		//this function should only be ever needed very rarely
 		//you should not need to interact with a proxy property directly
 		template<typename T>
-		ProxyProperty<T>* getProxyProperty(const PropertyDescriptor<T>& pd) const
+		[[nodiscard]] ProxyProperty<T>* getProxyProperty(const PropertyDescriptor<T>& pd) const
 		{
 			auto containerIt = m_toContainer.find(&pd);
 			//property has never been set -> return nullptr
