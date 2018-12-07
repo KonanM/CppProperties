@@ -53,8 +53,39 @@ propertyContainer.changeProperty(2);
 propertyContainer.emit();
 
 ```
+### Proxy Properties
+A proxy property is basically a property as well as a property container. How is this useful you might ask?  
+First of all it provides some great encasultion for more complex properties that are dependent on multiple other properties.
+The second reason is that it makes it very easy and convenient to write such properties.
+Just assume we have a requirement that we can switch the language at runtime and all the strings will update.
 
+```cpp
+//made up example how multi language support is implemented
+std::string myAppTitle = translate("MyApp_Title_ID", "en-us")
+//real example starts here
+ps::PropertyDescriptor<std::string> TitlePD("MyApp");
+ps::PropertyDescriptor<std::string> LanguagePD("en-us");
 
+ps::PropertyContainer propertyContainer;
+
+auto translateableTitle = ps::make_proxy_property([](const auto& language){ return translate("MyApp_Title_ID", language);}, LanguagePD);_
+
+propertyContainer.setProperty(TitlePD, std::move(translateableTitle));
+```
+
+Now lets assume another example, where you have to calculate a value dependent on multiple inputs and you have to recalulate this value when any of the input changes.  
+Too not make this too complicated, let's assume an x and y value and we need to calculate the distance.
+
+```cpp
+ps::PropertyDescriptor<double> XCoordinatePD(0.), YCoordinatePD(0.), DistancePD(0.);
+
+ps::PropertyContainer propertyContainer;
+
+auto distanceFunc = [](double x, double y){ return std::sqrt(x*x + y*y); }
+
+propertyContainer.setProperty(DistancePD, std::make_proxy_property(distanceFunc, XCoordinatePD, YCoordinatePD));
+
+```
 
 ### PropertyContainer Hierarchies
 This feature has actually inspired the whole library, if you don't need this I would actually rather recommend something like [boost synapse](https://zajo.github.io/boost-synapse/). I have seen a property hierarchy in action once in a multi million LOC C++ codebase where it was one of the basic pillars of the software architecture, quite similar to [QObject from Qt](http://doc.qt.io/qt-5/qobject.html).
@@ -63,7 +94,6 @@ It probably makes sense to derive from ps::PropertyContainer if you need to use 
 **Why would I want to use this feature?**
 
 * Makes all classes that derive from ps::PropertyContainer easily extensible by new properties.
-* Gives you the decorator pattern for free, which for example makes factories very customiziable.
 * All properties from parent containers can be queried, making things like injecting certain properties super easy. You don't have to pass properties along the property hierarchy, to be able to access a property somewhere down the hierarchy. 
 * It's very easy to provide custom implementations for certain properties to make things easily testable. 
 * Makes it trivial to switch things like a logger - or similar custom classes - at runtime. 
