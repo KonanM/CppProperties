@@ -1,7 +1,6 @@
 #pragma once
 
 #include "PropertySystem_forward.h"
-#include "PropertyContainer.h"
 #include <any>
 
 namespace ps

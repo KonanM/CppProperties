@@ -1,9 +1,9 @@
 #pragma once
 
-#include "PropertySystem_forward.h"
 #include "PropertyDescriptor.h"
-#include "Signal.h"
 #include "Property.h"
+#include "Signal.h"
+
 
 #include <any>
 #include <variant>
@@ -12,7 +12,6 @@
 #include <typeindex>
 #include <utility>
 #include <tuple>
-#include <stddef.h>
 #include <memory>
 #include <vector>
 #include <functional>
@@ -66,20 +65,20 @@ namespace ps
 		//only cater the excpetional use case and the optional can also be
 		//used by the caller
 		template<typename T>
-		[[nodiscard]] Property<T> getProperty(const PropertyDescriptor<T>& pd) const
+		[[nodiscard]] const Property<T>& getProperty(const PropertyDescriptor<T>& pd) const
 		{
 			auto containerIt = m_toContainer.find(&pd);
 			//check if a property has never been set -> return the default value
 			if (containerIt == end(m_toContainer))
 			{
-				return Property<T>(pd.getDefaultValue());
+				return pd.getDefaultValue();
 			}
 
 			//first find out in which container the property is stored, then get the value from
 			//that container
 			auto& container = *containerIt->second;
 			auto propertyData = container.getPropertyInternal(pd);
-			return propertyData ? *propertyData : Property<T>(pd.getDefaultValue());
+			return propertyData ? *propertyData : pd.getDefaultValue();
 		}
 
 		//this function should only be ever needed very rarely
@@ -374,7 +373,7 @@ namespace ps
 				auto proxyProperty = static_cast<ProxyProperty<T>*>(&addChildContainer(std::move(value)));
 				m_propertyData[&pd].reset(proxyProperty);
 				const T& newValue = proxyProperty->get();
-				if (newValue != pd.getDefaultValue())
+				if (pd.getDefaultValue() != newValue)
 				{
 					setDirty(*proxyProperty);
 				}

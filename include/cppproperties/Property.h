@@ -5,6 +5,7 @@
 #include "PropertyBase.h"
 
 #include <any>
+#include <typeindex>
 
 namespace ps
 {

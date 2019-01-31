@@ -15,7 +15,7 @@ ps::PropertyDescriptor<int*> IntPtrPD(nullptr);
 TEST(PropertyTest, getAndSet_value42_get42)
 {
 	ps::Property<int> intP(42);
-	ASSERT_TRUE(intP == 42);
+	ASSERT_EQ(intP, 42);
 }
 
 TEST(PropertyTest, onPropertyChanged_connectWithLambda_applyNewValue)
@@ -27,7 +27,7 @@ TEST(PropertyTest, onPropertyChanged_connectWithLambda_applyNewValue)
 	intP += [&newVal](int newValue) {newVal = newValue;};
 	intP.set(3528);
 
-	ASSERT_TRUE(newVal == 3528);
+	ASSERT_EQ(newVal, 3528);
 }
 
 TEST(PropertyTest, onPropertyChanged_disconnectLambda_oldValue)
@@ -41,7 +41,7 @@ TEST(PropertyTest, onPropertyChanged_disconnectLambda_oldValue)
 	intP -= lambda;
 	intP.set(3528);
 
-	ASSERT_TRUE(newVal == 42);
+	ASSERT_EQ(newVal, 42);
 }
 
 TEST(PropertyTest, onPropertyChanged_disconnectByTypeIndex_oldValue)
@@ -54,7 +54,7 @@ TEST(PropertyTest, onPropertyChanged_disconnectByTypeIndex_oldValue)
 	intP -= disconnector;
 	intP.set(3528);
 
-	ASSERT_TRUE(newVal == 42);
+	ASSERT_EQ(newVal, 42);
 }
 
 //###########################################################################
@@ -94,7 +94,7 @@ TEST(PropertyContainerTest, setAndGetProperty_emptyContainer_newValue)
 	root.setProperty(IntPD, 2);
 	
 	ASSERT_TRUE(root.hasProperty(IntPD));
-	ASSERT_TRUE(root.getProperty(IntPD) == 2);
+	ASSERT_EQ(root.getProperty(IntPD), 2);
 }
 
 TEST(PropertyContainerTest, setAndGetProperty_propertyExists_newValue)
@@ -105,7 +105,7 @@ TEST(PropertyContainerTest, setAndGetProperty_propertyExists_newValue)
 	root.setProperty(IntPD, 42);
 	
 	ASSERT_TRUE(root.hasProperty(IntPD));
-	ASSERT_TRUE(root.getProperty(IntPD) == 42);
+	ASSERT_EQ(root.getProperty(IntPD), 42);
 }
 
 TEST(PropertyContainerTest, changeProperty_propertyExists_newValue)
@@ -115,7 +115,7 @@ TEST(PropertyContainerTest, changeProperty_propertyExists_newValue)
 
 	root.changeProperty(StringPD, "Wuhu I'm here!");
 
-	ASSERT_TRUE(root.getProperty(StringPD) == "Wuhu I'm here!");
+	ASSERT_EQ(root.getProperty(StringPD), "Wuhu I'm here!");
 }
 
 TEST(PropertyContainerTest, removeProperty_containerEmpty_noCrash)
@@ -150,12 +150,12 @@ TEST(PropertyContainerTest, setMultipleProperties_getProperty_newValue)
 	for (auto& pd : propertyListInt)
 		root.setProperty(pd, pd.getDefaultValue() * 2 );
 	for (auto& pd : propertyListString)
-		root.setProperty(pd, pd.getDefaultValue() + newString);
+		root.setProperty(pd, pd.getDefaultValue().get() + newString);
 
 	for (auto& pd : propertyListString)
-		ASSERT_TRUE(root.getProperty(pd) == pd.getDefaultValue() + newString);
+		ASSERT_TRUE(root.getProperty(pd) == pd.getDefaultValue().get() + newString);
 	for (auto& pd : propertyListInt)
-		ASSERT_TRUE(root.getProperty(pd) == pd.getDefaultValue() * 2);
+		ASSERT_TRUE(root.getProperty(pd) == pd.getDefaultValue().get() * 2);
 }
 
 //###########################################################################
@@ -168,7 +168,7 @@ TEST(PropertyContainerTest, setMultipleProperties_getProperty_newValue)
 class SimpleIntPP : public ps::ProxyProperty<int>
 {
 public:
-	int get() const noexcept final
+	int get() const noexcept final override
 	{
 		return 42;
 	}
@@ -179,7 +179,7 @@ TEST(PropertyContainerTest, testProxyProperty_setAndGetProperty_newValue)
 	ps::PropertyContainer root;
 	root.setProperty(IntPD, std::make_unique<SimpleIntPP>());
 
-	ASSERT_TRUE(root.getProperty(IntPD) == 42);
+	ASSERT_EQ(root.getProperty(IntPD), 42);
 }
 
 TEST(PropertyContainerTest, testProxyProperty_removeProxyProperty_defaultValue)
@@ -353,7 +353,7 @@ TEST(CppPropertiesTest, TestSignals_connectAndChangeProperty_lambdaCallBack)
 	rootContainer.changeProperty(IntPD, 6);
 	rootContainer.emit();
 	
-	ASSERT_TRUE(observerFuncCalledCount == 2);
+	ASSERT_EQ(observerFuncCalledCount, 2);
 }
 
 TEST(CppPropertiesTest, TestSignals_connectToParentProperty_lambdaCallBack)
@@ -369,7 +369,7 @@ TEST(CppPropertiesTest, TestSignals_connectToParentProperty_lambdaCallBack)
 	rootContainer.changeProperty(IntPD, 6);
 	rootContainer.emit();
 	
-	ASSERT_TRUE(observerFuncCalledCount == 2);
+	ASSERT_EQ(observerFuncCalledCount, 2);
 }
 
 TEST(CppPropertiesTest, TestSignals_removeProperty_lambdaCallBack)
@@ -394,12 +394,12 @@ TEST(CppPropertiesTest, TestSignals_removeProperty_lambdaCallBack)
 	rootContainer.removeProperty(IntPD);
 	rootContainer.emit();
 
-	ASSERT_TRUE(observerFuncCalledCount == 2);
+	ASSERT_EQ(observerFuncCalledCount, 2);
 	
 	childContainer.removeProperty(IntPD);
 	rootContainer.emit();
 
-	ASSERT_TRUE(observerFuncCalledCount == 3);
+	ASSERT_EQ(observerFuncCalledCount, 3);
 }
 
 TEST(CppPropertiesTest, TestSignals_AddMultiplePMF_OnlyAddedOnce)
@@ -413,7 +413,7 @@ TEST(CppPropertiesTest, TestSignals_AddMultiplePMF_OnlyAddedOnce)
 	rootContainer.changeProperty(IntPD, 1);
 	rootContainer.emit();
 
-	ASSERT_TRUE(rootContainer.dirtyInt == 1);
+	ASSERT_EQ(rootContainer.dirtyInt, 1);
 }
 
 TEST(CppPropertiesTest, TestSignals_connectToVar_varTakesValue)
@@ -425,7 +425,7 @@ TEST(CppPropertiesTest, TestSignals_connectToVar_varTakesValue)
 	rootContainer.changeProperty(IntPD, 3234);
 	rootContainer.emit();
 
-	ASSERT_TRUE(rootContainer.dirtyInt == 3234);
+	ASSERT_EQ(rootContainer.dirtyInt, 3234);
 }
 
 TEST(CppPropertiesTest, TestSignals_disconnectSingle_NoUpdateCall)
@@ -439,7 +439,7 @@ TEST(CppPropertiesTest, TestSignals_disconnectSingle_NoUpdateCall)
 	rootContainer.disconnect(IntPD, idx);
 	rootContainer.emit();
 
-	ASSERT_TRUE(localInt == 42);
+	ASSERT_EQ(localInt, 42);
 }
 
 TEST(CppPropertiesTest, TestSignals_disconnectAll_NoUpdateCall)
@@ -454,8 +454,8 @@ TEST(CppPropertiesTest, TestSignals_disconnectAll_NoUpdateCall)
 	rootContainer.disconnect(IntPD);
 	rootContainer.emit();
 
-	ASSERT_TRUE(rootContainer.dirtyInt != 3234);
-	ASSERT_TRUE(localInt == 42);
+	ASSERT_NE(rootContainer.dirtyInt, 3234);
+	ASSERT_EQ(localInt, 42);
 }
 
 
