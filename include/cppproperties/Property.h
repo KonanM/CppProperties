@@ -63,9 +63,9 @@ namespace ps
 		}
 
 		// returns the internal value
-		virtual T get() const noexcept
+		virtual const T& get() const noexcept
 		{ 
-			return m_value; 
+			return m_value;
 		}
 		//the get as any method is needed for the type erased signal implmentation
 		virtual std::any getAsAny() const noexcept final override

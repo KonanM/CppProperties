@@ -168,9 +168,13 @@ TEST(PropertyContainerTest, setMultipleProperties_getProperty_newValue)
 class SimpleIntPP : public ps::ProxyProperty<int>
 {
 public:
-	int get() const noexcept final override
+	SimpleIntPP()
 	{
-		return 42;
+		set(42);
+	}
+	const int& get() const noexcept final override
+	{
+		return ps::ProxyProperty<int>::get();
 	}
 };
 
@@ -243,10 +247,9 @@ TEST(CppPropertiesTest, makeProxyProperty_matchString_findHello)
 class IntPP : public ps::ProxyProperty<int>
 {
 public:
-	IntPP() = default;
-	int get() const noexcept override
+	IntPP()
 	{
-		return 42;
+		set(42);
 	}
 	void dirtyFunc()
 	{

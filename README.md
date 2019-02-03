@@ -68,7 +68,7 @@ ps::PropertyDescriptor<std::string> LanguagePD("en-us");
 
 ps::PropertyContainer propertyContainer;
 
-auto translateableTitle = ps::make_proxy_property([](const auto& language){ return translate("MyApp_Title_ID", language);}, LanguagePD);_
+auto translateableTitle = ps::make_proxy_property([](const auto& language){ return translate("MyApp_Title_ID", language);}, LanguagePD);
 
 propertyContainer.setProperty(TitlePD, std::move(translateableTitle));
 ```
