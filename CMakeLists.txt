@@ -1,8 +1,10 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 project(libcppproperties VERSION 1.0.0 LANGUAGES CXX)
 
 #Make sure that custom modules like FindXYZ are found
 list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_SOURCE_DIR}/cmake)
+
+option(BUILD_TESTING "Should the tests be included?" ON)
 
 ##############################################
 # Declare dependencies
@@ -10,10 +12,10 @@ list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_SOURCE_DIR}/cmake)
 
 ##############################################
 # Create target and set properties
-SET(HeaderFiles include/cppproperties/PropertyContainer.h include/cppproperties/PropertyDescriptor.h)
+
+file(GLOB HeaderFiles include/cppproperties/*.h)
 
 add_library(cppproperties INTERFACE)
-
 #Set target properties
 target_include_directories(cppproperties INTERFACE
         $<INSTALL_INTERFACE:include>
@@ -81,4 +83,7 @@ export(EXPORT cppproperties-targets FILE ${CMAKE_CURRENT_BINARY_DIR}/CppProperti
 #Register package in user's package registry
 export(PACKAGE CppProperties)
 
+if(BUILD_TESTING)
+enable_testing()
 add_subdirectory(test)
+endif()

@@ -22,7 +22,7 @@ namespace ps
 		{
 			if constexpr (std::is_reference_v<T>)
 				static_assert("Please use std::reference wrapper for using reference semantics.\n"
-					"The underlying std::any storage doesn't support references");
+					"The underlying storage doesn't support references");
 		}
 
 		PropertyDescriptor(const PropertyDescriptor&) = delete;

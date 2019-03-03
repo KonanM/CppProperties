@@ -258,10 +258,10 @@ namespace ps
 		//1. collect all signals belonging to properties that changed since the last update
 		//2. remove duplicates of calls to class member functions (optional)
 		//3. reset the dirty flags of all the properties that changed
-		//4. get the new value and make a copy
+		//4. get the new value and make a copy 
 		//5. emit the function calls of all the signals
 		//6. call emit on all children
-		//TODO: add a pre and post update step
+		//TODO: add a pre and post update step?
 		void emit(bool ignoreDuplicateCalls = true)
 		{
 			for (auto* dirtyProperty : m_changedProperties)
