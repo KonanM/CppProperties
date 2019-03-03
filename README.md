@@ -152,7 +152,7 @@ It probably makes sense to derive from ps::PropertyContainer if you need to use 
 Alright let's assume you are working a software with multiple 3D views that show a scene from different perspectives. For a new feature you need to keep track of the mouse position projected to your 3D view in the other views. 
 Not only the mouse position could change, but also the coordinate system (e.g. you can move around with the keyboard, or switch perspectices).
 
-![alt text](https://github.com/KonanM/CppProperties/images/LeftRightView.jpg "Property Hierarchy Example")
+![](https://github.com/KonanM/CppProperties/raw/master/images/LeftRightView.jpg "Property Hierarchy Example")
 
 ```cpp
 
