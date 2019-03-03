@@ -5,9 +5,9 @@ The implementation is a header only modern C++17 library, which does not rely on
 There have been several discussions about [C# properties](https://docs.microsoft.com/en-us/dotnet/csharp/programming-guide/classes-and-structs/properties)/[__declspec(property)](https://docs.microsoft.com/en-us/cpp/cpp/property-cpp?view=vs-2017) in C++. Here an example from [reddit](https://www.reddit.com/r/cpp/comments/61m9r1/what_do_you_think_about_properties_in_the_c/) and I even found an [old paper](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2004/n1615.pdf) about them.
 This library has just superficial similarities to those ideas.
 
-In it's most base from properties from this library are a wrapper around a value and signal (that you can connect to, to get notified of changes). 
+In it's core properties from this library are a wrapper around a value and a signal. You can connect to them (synchronously) and get notified when they change. 
 While a property itself can be useful, it actually doesn't really help you with writing extensible classes, since you would have to writer a getter / setter for each property anyways.
-That's why this library provides some utilities on top of basic properties, that make them useful for large scale applications.
+That's why this library provides some utilities on top of basic properties, that make them useful for large scale applications that work in an asynchronous fashion.
 
 ## Design Goals
 
@@ -26,6 +26,7 @@ target_link_libraries(${TargetName} PRIVATE CppProperties::cppproperties)
 ```
 ### Other
 Alternatively copy the include/cppproperties folder to the include folder of your project an you should be good to go.
+If you want to copy the include/cppproperties to a central location, don't forget to add include path to that location to your project.
 There is no need to link anything, since the library is header only.
 
 ## Examples
@@ -209,4 +210,4 @@ That being said it should be possible to port it to C++ 14.
 
 **Why is the library header only? Isn't that bad for compilation times?**
 
-The descision for being header is not because of ease of distribution, but simply because most of the code is templated and a traditional library wouldn't bring any benefits.
+The descision for being header only is not because of ease of distribution, but simply because most of the code is templated and a traditional library wouldn't bring any benefits.
