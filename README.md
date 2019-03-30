@@ -205,8 +205,8 @@ I'm aware of the QT property system and the [reactive extensions for C++](https:
 
 **Is the C++ 17 requirement really needed?**
 
-The C++17 standard is currently needed for a std::any based type erasure and the implementation relies on if constexpr in quite a few places.
-That being said it should be possible to port it to C++ 14.
+Initially the C\+\+ 17 standard was used for std::any, but I removed that dependency and it would now be possible to port the library to C\+\+14.
+That being said structured bindings as well as if constexpr and some C++17 type traits are currently used.
 
 **Why is the library header only? Isn't that bad for compilation times?**
 
