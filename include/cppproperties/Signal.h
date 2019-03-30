@@ -1,5 +1,4 @@
 #pragma once
-#include <any>
 #include <unordered_map>
 #include <type_traits>
 #include <typeindex>
@@ -56,7 +55,7 @@ namespace ps
 			{
 				m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &valPtr = m_proptertyPtr]()
 				{
-					(inst->*func)(std::any_cast<T>(*valPtr));
+					(inst->*func)(*static_cast<const T*>(valPtr));
 				});
 			}
 
@@ -76,7 +75,7 @@ namespace ps
 			{
 				m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<FuncT>(func), &valPtr = m_proptertyPtr]()
 				{
-					func(std::any_cast<T>(*valPtr));
+					func(*static_cast<const T*>(valPtr));
 				});
 			}
 
@@ -100,27 +99,27 @@ namespace ps
 		}
 
 		// calls all connected functions
-		void emit(std::any& value) const
+		void emit(const void* value) const
 		{
 			setEmitValue(value);
-			for (auto&[typeID, slot] : m_slots)
+			for (auto& [typeID, slot] : m_slots)
 				slot();
 		}
-		void setEmitValue(std::any& value) const noexcept
+		void setEmitValue(const void* value) const noexcept
 		{
-			m_proptertyPtr = &value;
+			m_proptertyPtr = value;
 		}
-		void merge(std::unordered_map<std::type_index, const std::function<void()>&>& slots) const noexcept
+		void getSlots(std::unordered_map<std::type_index, const std::function<void()>&>& slots) const noexcept
 		{
-			for (auto&[typeIndex, func] : m_slots)
+			for (auto& [typeIndex, func] : m_slots)
 				slots.emplace(typeIndex, func);
 		}
 
 	protected:
 
 		std::unordered_map<std::type_index, std::function<void()>> m_slots;
-		//we need to keep a ptr to a std::any as member, since the lambdas stored inside
+		//we need to keep a void* as member, since the lambdas stored inside
 		//the slots reference it
-		mutable std::any* m_proptertyPtr;
+		mutable const void* m_proptertyPtr;
 	};
 }

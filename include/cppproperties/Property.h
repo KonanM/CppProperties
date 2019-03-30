@@ -18,9 +18,9 @@ namespace ps
 		Property() = default;
 		Property(const Property<T>& that) = default;
 		Property(Property<T>&& that) = default;
-
-		explicit Property(const T& val)
-			: m_value(val) {}
+		template<typename ValueT>
+		explicit Property(ValueT&& val)
+			: m_value(std::forward<ValueT>(val)) {}
 
 		// assigns a new value to this Property
 		Property<T>& operator=(const T& rhs)
@@ -68,9 +68,9 @@ namespace ps
 			return m_value;
 		}
 		//the get as any method is needed for the type erased signal implmentation
-		virtual std::any getAsAny() const noexcept final override
+		virtual const void* getPointer() const noexcept final override
 		{
-			return std::make_any<T>(get());
+			return &get();
 		}
 
 		// if there are any Properties connected to this Property,
@@ -85,7 +85,7 @@ namespace ps
 			if (m_parent)
 				m_parent->setDirty(*this);
 			if(!m_signal.empty())
-				m_signal.emit(std::make_any<T>(m_value));
+				m_signal.emit(&m_value);
 		}
 
 		// returns the value of this Property

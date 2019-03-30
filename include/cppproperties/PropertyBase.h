@@ -1,7 +1,6 @@
 #pragma once
 
 #include "PropertySystem_forward.h"
-#include <any>
 
 namespace ps
 {
@@ -18,7 +17,7 @@ namespace ps
 
 		
 		virtual ~PropertyBase() = default;
-		virtual std::any getAsAny() const noexcept = 0;
+		virtual const void* getPointer() const noexcept = 0;
 
 		bool isProxyProperty() const noexcept
 		{

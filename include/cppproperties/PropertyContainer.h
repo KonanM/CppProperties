@@ -3,10 +3,6 @@
 #include "PropertyDescriptor.h"
 #include "Property.h"
 #include "Signal.h"
-
-
-#include <any>
-#include <variant>
 #include <type_traits>
 #include <typeinfo>
 #include <typeindex>
@@ -256,11 +252,12 @@ namespace ps
 		}
 		//the emit step looks like:
 		//1. collect all signals belonging to properties that changed since the last update
-		//2. remove duplicates of calls to class member functions (optional)
-		//3. reset the dirty flags of all the properties that changed
-		//4. get the new value and make a copy 
+		//2. reset the dirty flags of all the properties that changed
+		//3. remove duplicates of calls to class member functions (optional)
+		//4. get the new value
 		//5. emit the function calls of all the signals
-		//6. call emit on all children
+		//6. remove the signals that got removed
+		//7. call emit on all children
 		//TODO: add a pre and post update step?
 		void emit(bool ignoreDuplicateCalls = true)
 		{
@@ -268,38 +265,18 @@ namespace ps
 			{
 				dirtyProperty->m_propertyChanged = false;
 			}
-			//TODO add compile option, instead of runtime?
-			std::unordered_map<std::type_index, const std::function<void()>&> slots;
-			for (auto* dirtyProperty : m_changedProperties)
-			{
-				//the copy here is needed if we want to have stable values for all connected signals
-				//this is because an emit might influence update value 
-				//if that's not needed, we could simply pass the value directly to the emit
-				std::any newValue = dirtyProperty->getAsAny();
-				if (ignoreDuplicateCalls)
-				{
-					for (auto& dirtySignal : dirtyProperty->m_connectedSignals)
-					{
-						dirtySignal->merge(slots);
-						dirtySignal->setEmitValue(newValue);
-					}
 
-					for (auto&[idx, slot] : slots)
-						slot();
-					slots.clear();
-				}
-				else
-				{
-					for (auto& dirtySignal : dirtyProperty->m_connectedSignals)
-						dirtySignal->emit(newValue);
-				}
-			}
+			if (ignoreDuplicateCalls)
+				emitEliminateDuplicates();
+			else
+				emitWithDuplicates();
+			
 			//TODO: check if we need to support duplicate signal resolving for removed properties
 			for (auto& removedProperty : m_removedProperies)
 			{
 				for (auto& dirtySignal : removedProperty->m_connectedSignals)
 				{
-					dirtySignal->emit(removedProperty->getAsAny());
+					dirtySignal->emit(removedProperty->getPointer());
 				}
 			}
 
@@ -310,6 +287,32 @@ namespace ps
 		}
 
 	protected:
+		void emitEliminateDuplicates()
+		{
+			//TODO add compile option, instead of runtime?
+			std::unordered_map<std::type_index, const std::function<void()>&> slots;
+			for (auto* dirtyProperty : m_changedProperties)
+			{
+				const void* newValue = dirtyProperty->getPointer();
+				for (auto& dirtySignal : dirtyProperty->m_connectedSignals)
+				{
+					dirtySignal->getSlots(slots);
+					dirtySignal->setEmitValue(newValue);
+				}
+			}
+
+			for (auto& [idx, slot] : slots)
+				slot();
+		}
+		void emitWithDuplicates()
+		{
+			for (auto* dirtyProperty : m_changedProperties)
+			{
+				const void* newValue = dirtyProperty->getPointer();
+				for (auto& dirtySignal : dirtyProperty->m_connectedSignals)
+					dirtySignal->emit(newValue);
+			}
+		}
 		template<typename T>
 		Property<T>* getPropertyInternal(const PropertyDescriptor<T>& pd) const
 		{

@@ -5,6 +5,7 @@ namespace
 {
 	ps::PropertyDescriptor<int> IntPD(0);
 	ps::PropertyDescriptor<std::string> StringPD("Empty");
+	ps::PropertyDescriptor<std::unique_ptr<std::string>> UniqueStringPD(nullptr);
 }
 
 //###########################################################################
@@ -45,6 +46,14 @@ TEST(PropertyContainerTest, setAndGetProperty_emptyContainer_newValue)
 
 	ASSERT_TRUE(root.hasProperty(IntPD));
 	ASSERT_EQ(root.getProperty(IntPD), 2);
+}
+
+TEST(PropertyContainerTest, setAndGetProperty_testNonCopyable_valueGetAndSet)
+{
+	ps::PropertyContainer root;
+	root.setProperty(UniqueStringPD, std::make_unique<std::string>("Hello World!"));
+
+	ASSERT_EQ(*root.getProperty(UniqueStringPD).get(), "Hello World!");
 }
 
 TEST(PropertyContainerTest, setAndGetProperty_propertyExists_newValue)
