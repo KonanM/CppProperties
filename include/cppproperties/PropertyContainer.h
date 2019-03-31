@@ -27,6 +27,7 @@ namespace ps
 	class PropertyContainerBase
 	{
 	public:
+		using KeyT = const PropertyDescriptorBase*;
 		PropertyContainerBase() = default;
 		//enable move constructors
 		PropertyContainerBase& operator=(PropertyContainerBase&&) = default;
@@ -75,6 +76,12 @@ namespace ps
 			auto& container = *containerIt->second;
 			auto propertyData = container.getPropertyInternal(pd);
 			return propertyData ? *propertyData : pd.getDefaultValue();
+		}
+		//convenience function for getProperty
+		template<typename T>
+		[[nodiscard]] const Property<T>& operator [] (const PropertyDescriptor<T>& pd) const
+		{
+			return getProperty(pd);
 		}
 
 		//this function should only be ever needed very rarely
@@ -224,9 +231,9 @@ namespace ps
 			});
 		}
 		template<typename ContainerT, typename... Args>
-		[[maybe_unused]] PropertyContainerBase& addChildContainer(Args&& ...args)
+		[[maybe_unused]] ContainerT& addChildContainer(Args&& ...args)
 		{
-			return addChildContainer(std::make_unique<ContainerT>(std::forward<Args>(args)...));
+			return *static_cast<ContainerT*>(&addChildContainer(std::make_unique<ContainerT>(std::forward<Args>(args)...)));
 		}
 
 		//use this to build the property container tree structure
@@ -285,6 +292,28 @@ namespace ps
 			for (auto& child : m_children)
 				child->emit(ignoreDuplicateCalls);
 		}
+		// [] begin/end/size is to make the container more stl compatible
+		//I think it's most reasonable to use the children as basis for the iterator / size
+		const std::unique_ptr<PropertyContainerBase>& operator [](size_t idx) const
+		{
+			return m_children[idx];
+		}
+		
+		size_t size() const noexcept
+		{
+			return m_children.size();
+		}
+
+		typename std::vector<std::unique_ptr<PropertyContainerBase>>::const_iterator cbegin() const noexcept
+		{
+			return m_children.cbegin();
+		}
+
+		typename std::vector<std::unique_ptr<PropertyContainerBase>>::const_iterator cend() const noexcept
+		{
+			return m_children.cend();
+		}
+		
 
 	protected:
 		void emitEliminateDuplicates()
@@ -528,7 +557,7 @@ namespace ps
 			m_parent = container;
 		}
 
-		using KeyT = const PropertyDescriptorBase*;
+		
 		//contains owned ProxyProperties as well as other owned children
 		std::vector<std::unique_ptr<PropertyContainerBase>> m_children;
 		PropertyContainerBase* m_parent = nullptr;

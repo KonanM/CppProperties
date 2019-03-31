@@ -66,9 +66,9 @@ int defaultValue = propertyContainer.getValue(IntPD); //property hasn't been set
 //the signals are emitted asnychronously
 auto disconnectIdx = propertyContainer.connect(IntPD, [](){ std::cout << "Slider Value got changed"; });
 //use setProperty to set a new property
-propertyContainer.setProperty(1);
+propertyContainer.setProperty(IntPD, 1);
 //use changeProperty to change a property after it has been set as it is more efficient
-propertyContainer.changeProperty(2);
+propertyContainer.changeProperty(IntPD, 2);
 
 //emit the signals for all properties that have changed, this is usually don within an main application loop
 propertyContainer.emit();
