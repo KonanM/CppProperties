@@ -1,7 +1,5 @@
 #FetchContent is only available for version 3.14 and upwards and we need it to get googletest
-if(${CMAKE_VERSION} VERSION_LESS "3.14.0") 
-    include(FetchContent)
-endif()
+include(FetchContent)
 
 set(gtest_force_shared_crt ON CACHE BOOL "Always use msvcrt.dll" FORCE)
 # Download and unpack googletest at configure time

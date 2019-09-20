@@ -1,5 +1,6 @@
 #pragma once
 #include <unordered_map>
+#include <unordered_set>
 #include <type_traits>
 #include <typeindex>
 
@@ -46,14 +47,14 @@ namespace ps
 			static_assert(std::is_same_v<classT, std::decay_t<typename PMF::class_type>>, "Member func ptr type has to match instance type.");
 			if constexpr (std::is_same_v<T, void>)
 			{
-				m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func]()
+				m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func](const void*)
 				{
 					(inst->*func)();
 				});
 			}
 			else
 			{
-				m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func, &valPtr = m_proptertyPtr]()
+				m_slots.try_emplace(std::type_index(typeid(pmfT)), [inst, func](const void* valPtr)
 				{
 					(inst->*func)(*static_cast<const T*>(valPtr));
 				});
@@ -69,11 +70,14 @@ namespace ps
 		{
 			if constexpr (std::is_same_v<T, void>)
 			{
-				m_slots.try_emplace(std::type_index(typeid(FuncT)), std::forward<FuncT>(func));
+				m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<FuncT>(func)](const void*)
+				{
+					func();
+				});
 			}
 			else
 			{
-				m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<FuncT>(func), &valPtr = m_proptertyPtr]()
+				m_slots.try_emplace(std::type_index(typeid(FuncT)), [func = std::forward<FuncT>(func)](const void* valPtr)
 				{
 					func(*static_cast<const T*>(valPtr));
 				});
@@ -101,25 +105,22 @@ namespace ps
 		// calls all connected functions
 		void emit(const void* value) const
 		{
-			setEmitValue(value);
 			for (auto& [typeID, slot] : m_slots)
-				slot();
+				slot(value);
 		}
-		void setEmitValue(const void* value) const noexcept
+
+
+		void emitUnique(const void* value, std::unordered_set<std::type_index>& alreadyInvoked)
 		{
-			m_proptertyPtr = value;
-		}
-		void getSlots(std::unordered_map<std::type_index, const std::function<void()>&>& slots) const noexcept
-		{
-			for (auto& [typeIndex, func] : m_slots)
-				slots.emplace(typeIndex, func);
+			for (auto& [typeID, slot] : m_slots)
+				if (auto it = alreadyInvoked.find(typeID); it == alreadyInvoked.end())
+				{
+					slot(value);
+					alreadyInvoked.emplace_hint(it, typeID);
+				}		
 		}
 
 	protected:
-
-		std::unordered_map<std::type_index, std::function<void()>> m_slots;
-		//we need to keep a void* as member, since the lambdas stored inside
-		//the slots reference it
-		mutable const void* m_proptertyPtr;
+		std::unordered_map<std::type_index, std::function<void(const void*)>> m_slots;
 	};
 }

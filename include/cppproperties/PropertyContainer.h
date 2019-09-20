@@ -319,19 +319,15 @@ namespace ps
 		void emitEliminateDuplicates()
 		{
 			//TODO add compile option, instead of runtime?
-			std::unordered_map<std::type_index, const std::function<void()>&> slots;
+			std::unordered_set<std::type_index> alreadyInvokedSlots;
 			for (auto* dirtyProperty : m_changedProperties)
 			{
 				const void* newValue = dirtyProperty->getPointer();
 				for (auto& dirtySignal : dirtyProperty->m_connectedSignals)
 				{
-					dirtySignal->getSlots(slots);
-					dirtySignal->setEmitValue(newValue);
+					dirtySignal->emitUnique(newValue, alreadyInvokedSlots);
 				}
 			}
-
-			for (auto& [idx, slot] : slots)
-				slot();
 		}
 		void emitWithDuplicates()
 		{
