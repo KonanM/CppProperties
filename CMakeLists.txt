@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.14)
 project(libcppproperties VERSION 1.0.0 LANGUAGES CXX)
 
 #Make sure that custom modules like FindXYZ are found
