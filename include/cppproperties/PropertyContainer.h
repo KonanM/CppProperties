@@ -45,16 +45,13 @@ namespace ps
 			//for(auto& [pd, propertyPtr] : other.m_propertyData)
 			//	m_propertyData[pd].reset()
 			for (const auto& child : other.m_children)
-				m_children.emplace_back(std::make_unique<PropertyContainerBase>(*child));
+				m_children.emplace_back(std::make_shared<PropertyContainerBase>(*child));
 		}
 
 		//we only need the virtual destructor, because I didn't want to intrduce a special case for
 		//owned proxy properties, an option could be to try a variant for this
 		//or simply use a second vector to store proxy properties
 		virtual ~PropertyContainerBase() = default;
-
-		template <typename T>
-		friend class Property;
 
 		//getProperty returns the value for the provided PD
 		//if the property is not set, the default value will be returned
@@ -116,6 +113,7 @@ namespace ps
 			PropertyContainerBase* parentContainer = m_parent ? m_parent->getOwningPropertyContainer(pd) : nullptr;
 			if (parentContainer)
 				parentContainer->updateAllSignals(pd);
+			
 			changePropertyInternal(pd, std::forward<U>(value));
 		}
 
@@ -180,29 +178,29 @@ namespace ps
 			//case 1: function object callable with argument of type T
 			if constexpr (std::is_invocable_v<FuncT, T>)
 			{
-				return signal.connect<T>(std::forward<FuncT>(func));
+				return signal.template connect<T>(std::forward<FuncT>(func));
 			}
 			//case 2: pointer of member function with argument of type T
 
 			else if constexpr (std::is_invocable_v<typename PMF::member_type, T>)
 			{
-				return signal.connect<T>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+				return signal.template connect<T>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
 			}
 			//the last two should be used if we want multiple properties to trigger the same method
 			//e.g. we have to recalulate something when any of the properties the result depends on changes
 			//case 3: callable functor with no argument
 			else if constexpr (std::is_function_v<typename PMF::member_type>)
 			{
-				return signal.connect<void>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
+				return signal.template connect<void>(static_cast<typename PMF::class_type*>(this), std::forward<FuncT>(func));
 			}
 			//case 4: pointer of member function with no argument
 			else if constexpr (std::is_invocable_v<FuncT>)
 			{
-				return signal.connect<void>(std::forward<FuncT>(func));
+				return signal.template connect<void>(std::forward<FuncT>(func));
 			}
 			else
 			{
-				static_assert(false, "Argument is not a valid callable functor. "
+				static_assert(std::is_same_v<T, void>, "Argument is not a valid callable functor. "
 					"Argument should be convertible to std::function<void()> or std::function<void(T)>");
 			}
 		}
@@ -233,13 +231,12 @@ namespace ps
 		template<typename ContainerT, typename... Args>
 		[[maybe_unused]] ContainerT& addChildContainer(Args&& ...args)
 		{
-			return *static_cast<ContainerT*>(&addChildContainer(std::make_unique<ContainerT>(std::forward<Args>(args)...)));
+			return *static_cast<ContainerT*>(addChildContainer(std::make_unique<ContainerT>(std::forward<Args>(args)...)).get());
 		}
 
 		//use this to build the property container tree structure
-		[[maybe_unused]] PropertyContainerBase& addChildContainer(std::unique_ptr<PropertyContainerBase> propertyContainer)
+		[[maybe_unused]] std::shared_ptr<PropertyContainerBase>& addChildContainer(std::unique_ptr<PropertyContainerBase> propertyContainer)
 		{
-			auto propertyContainerPtr = propertyContainer.get();
 			propertyContainer->setParent(this);
 			//here we propagate all the pd's that we own
 			for (auto& propertyData : m_propertyData)
@@ -254,8 +251,7 @@ namespace ps
 					propertyContainer->setParentContainerForProperty(*pd, container);
 			}
 
-			m_children.emplace_back(std::move(propertyContainer));
-			return *propertyContainerPtr;
+			return m_children.emplace_back(std::move(propertyContainer));
 		}
 		//the emit step looks like:
 		//1. collect all signals belonging to properties that changed since the last update
@@ -279,22 +275,20 @@ namespace ps
 				emitWithDuplicates();
 			
 			//TODO: check if we need to support duplicate signal resolving for removed properties
-			for (auto& removedProperty : m_removedProperies)
+			for (auto& removedProperty : m_removedProperties)
 			{
 				for (auto& dirtySignal : removedProperty->m_connectedSignals)
 				{
-					dirtySignal->emit(removedProperty->getPointer());
+					dirtySignal->emit(removedProperty->m_valuePtr);
 				}
 			}
-
-			m_changedProperties.clear();
-			m_removedProperies.clear();
+			m_removedProperties.clear();
 			for (auto& child : m_children)
 				child->emit(ignoreDuplicateCalls);
 		}
 		// [] begin/end/size is to make the container more stl compatible
 		//I think it's most reasonable to use the children as basis for the iterator / size
-		const std::unique_ptr<PropertyContainerBase>& operator [](size_t idx) const
+		const std::shared_ptr<PropertyContainerBase>& operator [](size_t idx) const
 		{
 			return m_children[idx];
 		}
@@ -304,12 +298,12 @@ namespace ps
 			return m_children.size();
 		}
 
-		typename std::vector<std::unique_ptr<PropertyContainerBase>>::const_iterator cbegin() const noexcept
+		typename std::vector<std::shared_ptr<PropertyContainerBase>>::const_iterator cbegin() const noexcept
 		{
 			return m_children.cbegin();
 		}
 
-		typename std::vector<std::unique_ptr<PropertyContainerBase>>::const_iterator cend() const noexcept
+		typename std::vector<std::shared_ptr<PropertyContainerBase>>::const_iterator cend() const noexcept
 		{
 			return m_children.cend();
 		}
@@ -318,11 +312,13 @@ namespace ps
 	protected:
 		void emitEliminateDuplicates()
 		{
-			//TODO add compile option, instead of runtime?
 			std::unordered_set<std::type_index> alreadyInvokedSlots;
-			for (auto* dirtyProperty : m_changedProperties)
+			//here we make a local copy, because changing a property could result in the change of another property
+			auto changedProperties = m_changedProperties;
+			m_changedProperties.clear();
+			for (auto* dirtyProperty : changedProperties)
 			{
-				const void* newValue = dirtyProperty->getPointer();
+				const void* newValue = dirtyProperty->m_valuePtr;
 				for (auto& dirtySignal : dirtyProperty->m_connectedSignals)
 				{
 					dirtySignal->emitUnique(newValue, alreadyInvokedSlots);
@@ -331,9 +327,12 @@ namespace ps
 		}
 		void emitWithDuplicates()
 		{
-			for (auto* dirtyProperty : m_changedProperties)
+			//here we make a local copy, because changing a property could result in the change of another property
+			auto changedProperties = m_changedProperties;
+			m_changedProperties.clear();
+			for (auto* dirtyProperty : changedProperties)
 			{
-				const void* newValue = dirtyProperty->getPointer();
+				const void* newValue = dirtyProperty->m_valuePtr;
 				for (auto& dirtySignal : dirtyProperty->m_connectedSignals)
 					dirtySignal->emit(newValue);
 			}
@@ -343,7 +342,7 @@ namespace ps
 		{
 			if (auto valueIt = m_propertyData.find(&pd); valueIt != end(m_propertyData))
 			{
-				auto& propertyData = valueIt->second;
+				auto& propertyData = valueIt->second.m_property;
 				return static_cast<Property<T>*>(propertyData.get());
 			}
 			return nullptr;
@@ -352,21 +351,29 @@ namespace ps
 		template<typename T>
 		Property<T>& getOrConstructPropertyInternal(const PropertyDescriptor<T>& pd)
 		{
-			auto& propertyData = m_propertyData[&pd];
-			if (!propertyData)
-				propertyData.reset(new Property<T>(this));
-				
-			return *static_cast<Property<T>*>(propertyData.get());
+			auto& propertyData = m_propertyData[&pd];;
+			Property<T>* propertyPtr = nullptr;
+			if (propertyData.m_property)
+			{
+				propertyPtr = static_cast<Property<T>*>(propertyData.m_property.get());
+			}
+			else
+			{
+				propertyPtr = new Property<T>();
+				propertyData.m_property.reset(propertyPtr);
+				propertyData.m_valuePtr = &propertyPtr->get();
+				(*propertyPtr) += [propertyDataPtr = &propertyData, parentPtr = this](const T&) { parentPtr->setDirty(*propertyDataPtr); };
+			}
+			return *propertyPtr;
 		}
 
 		template<typename T>
 		ProxyProperty<T>* getProxyPropertyInternal(const PropertyDescriptor<T>& pd) const
 		{
-			auto propertyData = getPropertyInternal(pd);
-			if (!propertyData || !propertyData->isProxyProperty())
+			auto& propertyData = m_propertyData[&pd];
+			if (!propertyData.m_property || !propertyData.m_isProxyProperty)
 				return nullptr;
-
-			return static_cast<ProxyProperty<T>*>(propertyData);
+			return static_cast<ProxyProperty<T>*>(propertyData.m_property);
 		}
 
 		template<typename T, typename U>
@@ -375,10 +382,10 @@ namespace ps
 			//this is the normal case where we store a value
 			if constexpr (std::is_convertible_v<std::decay_t<U>, T>)
 			{
-				auto& propertyData = getOrConstructPropertyInternal(pd);
-				if (!propertyData.isProxyProperty())
+				Property<T>& property = getOrConstructPropertyInternal(pd);
+				if (auto& propertydata = m_propertyData[&pd]; !propertydata.m_isProxyProperty)
 				{
-					propertyData.set(std::forward<U>(value));
+					property.set(std::forward<U>(value));
 				}
 				else
 				{
@@ -387,32 +394,36 @@ namespace ps
 					//turn the proxy property into a normal property
 					//if this is really intended call remove property + setProperty instead
 					assert(false);
-					removeProxyProperty(static_cast<ProxyProperty<T>*>(&propertyData));
-					auto& propertyUniquePtr = m_propertyData[&pd];
-					auto newProperty = new Property<T>(this);
-					propertyUniquePtr.reset(newProperty);
-					newProperty->set(std::forward<U>(value));
+					removeProxyProperty(static_cast<ProxyProperty<T>*>(&property));
+					auto& propertySharedPtr = m_propertyData[&pd].m_property;
+					propertySharedPtr.reset();
+					auto& newProperty = getOrConstructPropertyInternal(pd);
+					newProperty.set(std::forward<U>(value));
 				}
 			}
 			//we got a proxy property unique_ptr
 			//in this case we store a proxy property that can return a value of the given type
-			else if constexpr (std::is_base_of_v<ProxyProperty<T>, U::element_type>)
+			else if constexpr (std::is_base_of_v<ProxyProperty<T>, typename U::element_type>)
 			{
-				auto proxyProperty = static_cast<ProxyProperty<T>*>(&addChildContainer(std::move(value)));
-				m_propertyData[&pd].reset(proxyProperty);
+				auto& propertyData = m_propertyData[&pd];
+				auto proxyProperty = std::static_pointer_cast<ProxyProperty<T>>(addChildContainer(std::move(value)));
+				(*proxyProperty) += [&propertyData, parentPtr = this](const T&) { parentPtr->setDirty(propertyData); };
+				propertyData.m_valuePtr = &proxyProperty->get();
+				propertyData.m_property = proxyProperty;
+				propertyData.m_isProxyProperty = true;
 				const T& newValue = proxyProperty->get();
 				if (pd.getDefaultValue() != newValue)
 				{
-					setDirty(*proxyProperty);
+					setDirty(propertyData);
 				}
 			}
 			else
-				static_assert(false, "The type T of the property descriptor doesn't match the type of the passed value.");
+				static_assert(std::is_same_v<T, void>, "The type T of the property descriptor doesn't match the type of the passed value.");
 		}
 
 		void removeProxyProperty(const PropertyContainerBase* proxyProperty)
 		{
-			auto ppIt = std::find_if(begin(m_children), end(m_children), [proxyProperty](const std::unique_ptr<PropertyContainerBase>& childPtr)
+			auto ppIt = std::find_if(begin(m_children), end(m_children), [proxyProperty](const std::shared_ptr<PropertyContainerBase>& childPtr)
 			{
 				return childPtr.get() == proxyProperty;
 			});
@@ -423,7 +434,7 @@ namespace ps
 		template<typename T>
 		void updateAllSignals(const PropertyDescriptor<T>& pd)
 		{
-			Property<T>& propertyData = getOrConstructPropertyInternal(pd);
+			auto& propertyData = m_propertyData[&pd];
 			propertyData.m_connectedSignals.clear();
 			getAllSignals(pd, propertyData.m_connectedSignals);
 		}
@@ -432,7 +443,7 @@ namespace ps
 		template<typename T>
 		void addSignal(const PropertyDescriptor<T>& pd, Signal* signal)
 		{
-			Property<T>& propertyData = getOrConstructPropertyInternal(pd);
+			auto& propertyData = m_propertyData[&pd];
 			//TODO: check if this can be optimized
 			if (std::find(begin(propertyData.m_connectedSignals), end(propertyData.m_connectedSignals), signal) == end(propertyData.m_connectedSignals))
 				propertyData.m_connectedSignals.emplace_back(signal);
@@ -442,7 +453,7 @@ namespace ps
 		void addSignals(const PropertyDescriptor<T>& pd, std::vector<Signal*>& connectedSignals)
 		{
 			auto& propertyData = m_propertyData[&pd];
-			std::copy(begin(connectedSignals), end(connectedSignals), std::back_inserter(propertyData->m_connectedSignals));
+			std::copy(begin(connectedSignals), end(connectedSignals), std::back_inserter(propertyData.m_connectedSignals));
 		}
 
 		template<typename T>
@@ -475,13 +486,13 @@ namespace ps
 		template<typename T>
 		void removePropertyInternal(const PropertyDescriptor<T>& pd)
 		{
-			Property<T>* propertyData = getPropertyInternal(pd);
-			if (!propertyData)
+			auto& propertyData = m_propertyData[&pd];
+			if (!propertyData.m_property)
 				return;
 			//copy the old signal ptr
-			auto oldSignals = propertyData->m_connectedSignals;
-
-			auto oldValue = propertyData->get();
+			auto oldSignals = propertyData.m_connectedSignals;
+			auto* propertyPtr = propertyData.m_property.get();
+			auto oldValue = static_cast<Property<T>*>(propertyPtr)->get();
 			//we have to update all children and tell it which is the correct owning property container
 			auto newContainer = m_parent ? m_parent->getOwningPropertyContainer(pd) : nullptr;
 			setParentContainerForProperty(pd, newContainer);
@@ -501,13 +512,14 @@ namespace ps
 			{
 				//there are still observers, but no new container
 				//we need to signal the default value to the observers
-				auto& removedProperty = m_removedProperies.emplace_back(std::make_unique<Property<T>>(pd.getDefaultValue()));
+				auto& removedProperty = m_removedProperties.emplace_back(std::make_unique<PropertyData>());
+				removedProperty->m_property = std::make_shared<Property<T>>(pd.getDefaultValue());
+				removedProperty->m_valuePtr = &(std::static_pointer_cast<Property<T>>(removedProperty->m_property)->get());
 				removedProperty->m_connectedSignals = std::move(oldSignals);
 			}
-
 			//now we remove the property data
-			if (propertyData->isProxyProperty())
-				removeProxyProperty(static_cast<ProxyProperty<T>*>(propertyData));
+			if (propertyData.m_isProxyProperty)
+				removeProxyProperty(static_cast<ProxyProperty<T>*>(propertyPtr));
 			m_propertyData.erase(&pd);
 		}
 
@@ -527,9 +539,10 @@ namespace ps
 		void touchPropertyInternal(const PropertyDescriptor<T>& pd)
 		{
 			auto& propertyData = m_propertyData[&pd];
-			setDirty(*propertyData);
+			setDirty(propertyData);
 		}
-		void setDirty(PropertyBase& propertyData)
+		struct PropertyData;
+		void setDirty(PropertyData& propertyData)
 		{
 			if (!propertyData.m_propertyChanged)
 			{
@@ -555,46 +568,39 @@ namespace ps
 
 		
 		//contains owned ProxyProperties as well as other owned children
-		std::vector<std::unique_ptr<PropertyContainerBase>> m_children;
+		std::vector<std::shared_ptr<PropertyContainerBase>> m_children;
 		PropertyContainerBase* m_parent = nullptr;
 		//needed for lookup on which container the property is set
 		MapT<KeyT, PropertyContainerBase*> m_toContainer;
 		//we have to store the signals outside of the properties, since the signals are per container and not per property
 		//e.g. I can start an observation before a property is even set
 		MapT<KeyT, Signal> m_toSignal;
-		struct CustomDelete
+		struct PropertyData 
 		{
-			void operator()(PropertyBase* propertyPtr)
-			{
-				if (!propertyPtr->isProxyProperty())
-					delete propertyPtr;
-			}
+			std::shared_ptr<PropertyBase> m_property;
+			std::vector<Signal*> m_connectedSignals;
+			bool m_isProxyProperty = false;
+			bool m_propertyChanged = false;
+			const void* m_valuePtr = nullptr;
 		};
-		MapT<KeyT, std::unique_ptr<PropertyBase, CustomDelete>> m_propertyData;
+		MapT<KeyT, PropertyData> m_propertyData;
 
-		std::vector<PropertyBase*> m_changedProperties;
-		std::vector<std::unique_ptr<PropertyBase>> m_removedProperies;
+		std::vector<PropertyData*> m_changedProperties;
+		std::vector<std::unique_ptr<PropertyData>> m_removedProperties;
 	};
 		
 
 
-	//###########################################################################
+//###########################################################################
 //#
 //#                        ProxyProperty Definition                             
 //#
-//############################################################################
+//###########################################################################
 
 //proxy property is simply a an abstration of a property, instead of using a value
 //you can use a class to calculate that value
 	template<typename T>
 	class ProxyProperty : public PropertyContainer, public Property<T>
 	{
-	public:
-		ProxyProperty() 
-		: PropertyContainer()
-		, Property<T>()
-		{
-			m_isProxyProperty = true;
-		}
 	};
 }

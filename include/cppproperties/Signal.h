@@ -3,6 +3,7 @@
 #include <unordered_set>
 #include <type_traits>
 #include <typeindex>
+#include <functional>
 
 namespace ps
 {
@@ -24,8 +25,8 @@ namespace ps
 	template<class T, class U>
 	struct PMF_traits<U T::*>
 	{
-		using member_type = typename U;
-		using class_type = typename T;
+		using member_type = U;
+		using class_type = T;
 	};
 
 	//specialized signal implementation suited to our needs
@@ -36,6 +37,8 @@ namespace ps
 	//another requirement is that you can't add the same PMF twice
 	class Signal
 	{
+	protected:
+		std::unordered_map<std::type_index, std::function<void(const void*)>> m_slots;
 	public:
 		Signal() = default;
 
@@ -119,8 +122,5 @@ namespace ps
 					alreadyInvoked.emplace_hint(it, typeID);
 				}		
 		}
-
-	protected:
-		std::unordered_map<std::type_index, std::function<void(const void*)>> m_slots;
 	};
 }

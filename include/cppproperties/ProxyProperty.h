@@ -38,9 +38,9 @@ namespace ps
 		ConvertingProxyProperty(FuncT&& funcT, const PropertDescriptors& ... pds, std::index_sequence<Is...>)
 			: ProxyProperty<T>()
 			, m_func(std::forward<FuncT>(funcT))
-			, m_values(getProperty(pds)...)
+			, m_values(PropertyContainer::getProperty(pds)...)
 		{
-			((void)connect(pds, [&](const typename PropertDescriptors::value_type& value) {
+			((void)PropertyContainer::connect(pds, [&](const typename PropertDescriptors::value_type& value) {
 				std::get<Is>(m_values) = value;
 				anyPropertyChanged();
 			}), ...);
@@ -55,10 +55,9 @@ namespace ps
 	protected:
 		void anyPropertyChanged()
 		{
-			set(std::apply(m_func, m_values));
+			Property<T>::set(std::apply(m_func, m_values));
 		}
 		FuncT m_func;
 		std::tuple<typename PropertDescriptors::value_type...> m_values;
 	};
-
 }

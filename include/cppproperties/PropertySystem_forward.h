@@ -3,6 +3,9 @@
 namespace ps
 {
 	//forward declarations
+	template<typename T, typename FuncT, typename ... PropertDescriptors>
+	class ConvertingProxyProperty;
+
 	template<template<typename ...> class MapT = std::unordered_map>
 	class PropertyContainerBase;
 	using PropertyContainer = PropertyContainerBase<>;

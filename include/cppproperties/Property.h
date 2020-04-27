@@ -1,14 +1,17 @@
 #pragma once
 
 #include "PropertySystem_forward.h"
-#include "PropertyContainer.h"
-#include "PropertyBase.h"
-
-#include <any>
-#include <typeindex>
+#include "Signal.h"
 
 namespace ps
 {
+	class PropertyBase
+	{
+	public:
+		PropertyBase() = default;
+		virtual ~PropertyBase() = default;
+	};
+
 	template <typename T>
 	class Property : public PropertyBase
 	{
@@ -28,9 +31,6 @@ namespace ps
 			set(rhs);
 			return *this;
 		}
-
-		Property(PropertyContainer* container)
-			: PropertyBase(container) {}
 
 		// connect to a signal which is fired when the internal value
 		// has been changed. The new value is passed as parameter.
@@ -58,7 +58,7 @@ namespace ps
 		{
 			if (value != m_value) {
 				m_value = std::forward<U>(value);
-				propertyChanged();
+				m_signal.emit(&m_value);
 			}
 		}
 
@@ -67,25 +67,12 @@ namespace ps
 		{ 
 			return m_value;
 		}
-		//the get as any method is needed for the type erased signal implmentation
-		virtual const void* getPointer() const noexcept final override
-		{
-			return &get();
-		}
 
 		// if there are any Properties connected to this Property,
 		// they won't be notified of any further changes
 		void disconnectSignals() 
 		{
-			m_callerSignal->disconnect();
-		}
-
-		void propertyChanged() override
-		{
-			if (m_parent)
-				m_parent->setDirty(*this);
-			if(!m_signal.empty())
-				m_signal.emit(&m_value);
+			m_signal->disconnect();
 		}
 
 		// returns the value of this Property
@@ -101,7 +88,7 @@ namespace ps
 
 	private:
 		Signal m_signal;
-		T m_value;
+		T m_value{};
 	};
 
 	//comparision operator implementation
