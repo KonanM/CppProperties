@@ -23,10 +23,6 @@ public:
 	{
 		set(42);
 	}
-	const int& get() const noexcept override
-	{
-		return ps::ProxyProperty<int>::get();
-	}
 };
 
 
@@ -54,6 +50,20 @@ TEST(PropertyContainerTest, testProxyProperty_removeProxyProperty_containerEmpty
 	root.removeProperty(IntPD);
 
 	ASSERT_FALSE(root.hasProperty(IntPD));
+}
+
+TEST(PropertyContainerTest, copyConstructor_testProxyProperty)
+{
+	auto root = std::make_unique<ps::PropertyContainer> ();
+	root->setProperty(IntPD, std::make_unique<SimpleIntPP>());
+	root->setProperty(StringPD, "Am I copied?");
+	
+	ps::PropertyContainer copy(*root);
+	//delete the orignal container
+	root = nullptr;
+	copy.emit();
+	ASSERT_TRUE(copy.getProperty(IntPD) ==  42);
+	ASSERT_TRUE(copy.getProperty(StringPD) == "Am I copied?");
 }
 
 //###########################################################################

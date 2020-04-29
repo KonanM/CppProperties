@@ -41,8 +41,8 @@ TEST(PropertyTest, onPropertyChanged_disconnectLambda_oldValue)
 
 	//implementation of on property changed
 	auto lambda = [&newVal](int newValue) {newVal = newValue;};
-	intP += lambda;
-	intP -= lambda;
+	auto idx = intP += lambda;
+	intP -= idx;
 	intP.set(3528);
 
 	ASSERT_EQ(newVal, 42);

@@ -16,6 +16,8 @@ namespace ps
 
 	class PropertyDescriptorBase
 	{
+	protected:
+		const std::string m_name;
 	public:
 		template<typename T>
 		PropertyDescriptorBase(T&& name = std::string())
@@ -32,8 +34,5 @@ namespace ps
 		{
 			return m_name;
 		}
-
-	protected:
-		const std::string m_name;
 	};
 }

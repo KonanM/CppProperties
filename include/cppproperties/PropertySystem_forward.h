@@ -20,6 +20,6 @@ namespace ps
 	class PropertyBase;
 	template<typename T>
 	class Property;
-	
+	template<typename... Args>
 	class Signal;
 }

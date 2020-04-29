@@ -48,6 +48,16 @@ TEST(PropertyContainerTest, setAndGetProperty_emptyContainer_newValue)
 	ASSERT_EQ(root.getProperty(IntPD), 2);
 }
 
+TEST(PropertyContainerTest, copyConstructor_propertyExists_newValue)
+{
+	ps::PropertyContainer root;
+	root.setProperty(IntPD, 2);
+
+	ps::PropertyContainer copy(root);
+	ASSERT_TRUE(copy.hasProperty(IntPD));
+	ASSERT_EQ(copy.getProperty(IntPD), 2);
+}
+
 TEST(PropertyContainerTest, setAndGetProperty_testNonCopyable_valueGetAndSet)
 {
 	ps::PropertyContainer root;

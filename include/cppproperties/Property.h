@@ -15,12 +15,13 @@ namespace ps
 	template <typename T>
 	class Property : public PropertyBase
 	{
+	private:
+		Signal<const T&> m_signal;
+		T m_value{};
 	public:
 		using value_type = T;
 
 		Property() = default;
-		Property(const Property<T>& that) = default;
-		Property(Property<T>&& that) = default;
 		template<typename ValueT>
 		explicit Property(ValueT&& val)
 			: m_value(std::forward<ValueT>(val)) {}
@@ -35,20 +36,24 @@ namespace ps
 		// connect to a signal which is fired when the internal value
 		// has been changed. The new value is passed as parameter.
 		template<typename U>
-		std::type_index operator+=(U&& func)
+		size_t operator+=(U&& func)
 		{
-			return m_signal.connect<T>(std::forward<U>(func));
+			return m_signal.connect(std::forward<U>(func));
+		}
+		template<typename U, typename = std::enable_if_t<std::is_invocable_v<U,T>>>
+		size_t connect(U&& func)
+		{
+			return m_signal.connect(std::forward<U>(func));
 		}
 		//disconnect a signal - the type_index can be used when using lambdas
-		void operator-=(std::type_index index)
+		void operator-=(size_t index)
 		{
 			m_signal.disconnect(index);
 		}
-		//disconnect a signal by the same func that was used to connect it
-		template<typename FuncT>
-		void operator-=(FuncT&& func)
+
+		void disconnect(size_t index)
 		{
-			m_signal.disconnect(std::type_index(typeid(FuncT)));
+			m_signal.disconnect(index);
 		}
 
 		// sets the Property to a new value.
@@ -58,7 +63,7 @@ namespace ps
 		{
 			if (value != m_value) {
 				m_value = std::forward<U>(value);
-				m_signal.emit(&m_value);
+				m_signal.emit(m_value);
 			}
 		}
 
@@ -85,10 +90,6 @@ namespace ps
 		{
 			return get();
 		}
-
-	private:
-		Signal m_signal;
-		T m_value{};
 	};
 
 	//comparision operator implementation

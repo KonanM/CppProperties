@@ -14,6 +14,8 @@ namespace ps
 	template<typename T>
 	class PropertyDescriptor : public PropertyDescriptorBase
 	{
+	private:
+		const Property<T> m_defaultValue;
 	public:
 		using value_type = T;
 		PropertyDescriptor(T&& defaultValue, std::string identifier = "")
@@ -34,7 +36,5 @@ namespace ps
 		{
 			return m_defaultValue;
 		}
-	private:
-		const Property<T> m_defaultValue;
 	};
 }

@@ -33,6 +33,9 @@ namespace ps
 	template<typename T, typename FuncT, typename ... PropertDescriptors>
 	class ConvertingProxyProperty : public ProxyProperty<T>
 	{
+	protected:
+		FuncT m_func;
+		std::tuple<typename PropertDescriptors::value_type...> m_values;
 	public:
 		template<std::size_t... Is>
 		ConvertingProxyProperty(FuncT&& funcT, const PropertDescriptors& ... pds, std::index_sequence<Is...>)
@@ -57,7 +60,5 @@ namespace ps
 		{
 			Property<T>::set(std::apply(m_func, m_values));
 		}
-		FuncT m_func;
-		std::tuple<typename PropertDescriptors::value_type...> m_values;
 	};
 }
