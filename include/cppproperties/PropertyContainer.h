@@ -78,7 +78,7 @@ namespace ps
 		};
 		using KeyT = const PropertyDescriptorBase*;
 		
-		
+		//storage for all the properties that are set in this container
 		MapT<KeyT, PropertyData> m_propertyData;
 		//if a container has children we need to lookup on which container a certain property is set
 		MapT<KeyT, PropertyContainerBase*> m_toContainer;
@@ -92,7 +92,8 @@ namespace ps
 		PropertyContainerBase* m_parent = nullptr;
 		//if the key has been set then we know that this container is actually a proxy property stored via this key in another container
 		KeyT m_key = nullptr;
-
+		//this can be used to copy property containers type erased
+		std::shared_ptr<PropertyContainer>(*m_copyTypeErased)(std::shared_ptr<PropertyContainer>) = nullptr;
 
 	public:
 		
@@ -316,9 +317,10 @@ namespace ps
 		}
 
 		//use this to build the property container tree structure
-		[[maybe_unused]] std::shared_ptr<PropertyContainerBase>& addChildContainer(std::unique_ptr<PropertyContainerBase> propertyContainer)
+		template<typename T>
+		[[maybe_unused]] std::shared_ptr<PropertyContainerBase>& addChildContainer(std::unique_ptr<T> propertyContainer)
 		{
-			return addChildContainerInternal(std::move(propertyContainer));
+			return addChildContainerInternal<T>(std::move(propertyContainer));
 		}
 		//the emit step looks like:
 		//1. collect all signals belonging to properties that changed since the last update
@@ -377,8 +379,8 @@ namespace ps
 		
 
 	protected:
-
-		[[maybe_unused]] std::shared_ptr<PropertyContainerBase>& addChildContainerInternal(std::shared_ptr<PropertyContainerBase> propertyContainer)
+		template<typename T>
+		[[maybe_unused]] std::shared_ptr<T> addChildContainerInternal(std::shared_ptr<T> propertyContainer)
 		{
 			propertyContainer->setParent(this);
 			//here we propagate all the pd's that we own
@@ -393,8 +395,14 @@ namespace ps
 				if (!propertyContainer->ownsPropertyDataInternal(*pd))
 					propertyContainer->setParentContainerForProperty(*pd, container);
 			}
-
-			return m_children.emplace_back(std::move(propertyContainer));
+			propertyContainer->m_copyTypeErased = +[](std::shared_ptr<PropertyContainer> container) -> std::shared_ptr<PropertyContainer> {
+				if constexpr (std::is_copy_constructible_v<T>)
+					return std::make_shared<T>(*std::static_pointer_cast<T>(container));
+				else
+					return nullptr;
+			};
+			m_children.emplace_back(propertyContainer);
+			return propertyContainer;
 		}
 		void emitEliminateDuplicates()
 		{
@@ -484,7 +492,7 @@ namespace ps
 			else if constexpr (std::is_base_of_v<ProxyProperty<T>, typename U::element_type>)
 			{
 				auto& propertyData = m_propertyData[&pd];
-				auto proxyProperty = std::static_pointer_cast<ProxyProperty<T>>(addChildContainerInternal(std::move(value)));
+				auto proxyProperty = addChildContainerInternal<typename U::element_type>(std::move(value));
 				propertyData.template init<T, typename U::element_type>(std::static_pointer_cast<Property<T>>(proxyProperty), this, &pd);
 				propertyData.m_isProxyProperty = true;
 				static_cast<PropertyContainerBase&>(*proxyProperty).m_key = &pd;
