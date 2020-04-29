@@ -54,10 +54,9 @@ namespace ps
 			//it's safer to completely disable the copy constructor and copy via m_copyTypeErased
 			PropertyData(const PropertyData& other) = delete;
 
-			template<typename T>
+			template<typename T, typename PP = ProxyProperty<T>>
 			void init(std::shared_ptr<Property<T>> propertyPtr, PropertyContainer* parentPtr, const PropertyDescriptorBase* pd)
 			{
-
                 m_valuePtr = &propertyPtr->get();
                 (*propertyPtr).connect([propertyDataPtr = this, parentPtr](const T&) { parentPtr->setDirty(*propertyDataPtr); });
 				//for each property we have to store how it can be copied
@@ -70,7 +69,7 @@ namespace ps
 							parentPtr->setProperty(static_cast<const PropertyDescriptor<T>&>(*pd), std::make_unique<typename T::element_type>(*std::static_pointer_cast<Property<T>>(property)->get()));
 					}
 					else if (proxyProperty)
-						parentPtr->setProperty(static_cast<const PropertyDescriptor<T>&>(*pd), std::static_pointer_cast<ProxyProperty<T>>(proxyProperty));
+						parentPtr->setProperty(static_cast<const PropertyDescriptor<T>&>(*pd), std::static_pointer_cast<PP>(proxyProperty));
 					else
 						assert(false);
 				};
@@ -125,6 +124,8 @@ namespace ps
 				}
 				else
 				{
+					//TODO: add functionality to copy also child containers type erased...
+					//I guess I really need a polymorphic_value
 					//here we have a child container that we can copy directly
 					addChildContainerInternal(std::make_shared<PropertyContainer>(*child));
 				}
@@ -484,7 +485,7 @@ namespace ps
 			{
 				auto& propertyData = m_propertyData[&pd];
 				auto proxyProperty = std::static_pointer_cast<ProxyProperty<T>>(addChildContainerInternal(std::move(value)));
-				propertyData.init(std::static_pointer_cast<Property<T>>(proxyProperty), this, &pd);
+				propertyData.template init<T, typename U::element_type>(std::static_pointer_cast<Property<T>>(proxyProperty), this, &pd);
 				propertyData.m_isProxyProperty = true;
 				static_cast<PropertyContainerBase&>(*proxyProperty).m_key = &pd;
 				const T& newValue = proxyProperty->get();
