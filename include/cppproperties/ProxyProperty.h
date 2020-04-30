@@ -36,12 +36,14 @@ namespace ps
 	protected:
 		FuncT m_func;
 		std::tuple<typename PropertDescriptors::value_type...> m_values;
+		std::tuple<const PropertDescriptors*...> m_pds;
 	public:
 		template<std::size_t... Is>
 		ConvertingProxyProperty(FuncT&& funcT, const PropertDescriptors& ... pds, std::index_sequence<Is...>)
 			: ProxyProperty<T>()
 			, m_func(std::forward<FuncT>(funcT))
 			, m_values(PropertyContainer::getProperty(pds)...)
+			, m_pds(std::addressof(pds)...)
 		{
 			((void)PropertyContainer::connect(pds, [&](const typename PropertDescriptors::value_type& value) {
 				std::get<Is>(m_values) = value;
@@ -50,10 +52,12 @@ namespace ps
 
 			anyPropertyChanged();
 		}
-
-		//implement contructor in the base classes later
-		ConvertingProxyProperty(const ConvertingProxyProperty&) = default;
-		ConvertingProxyProperty(ConvertingProxyProperty&&) = default;
+		template<std::size_t... Is>
+		ConvertingProxyProperty(FuncT&& funcT, const std::tuple<const PropertDescriptors *...>& pds, std::index_sequence<Is...> is)
+			: ConvertingProxyProperty(funcT, *std::get<Is>(pds)..., is) {};
+		//copying and moving is currently the same for ConvertingProxyProperty
+		ConvertingProxyProperty(const ConvertingProxyProperty& that) : ConvertingProxyProperty(that.m_func, that.m_pds, std::index_sequence_for<PropertDescriptors...>{}) {};
+		ConvertingProxyProperty(ConvertingProxyProperty&& that) : ConvertingProxyProperty(that.m_func, that.m_pds, std::index_sequence_for<PropertDescriptors...>{}) {};
 
 	protected:
 		void anyPropertyChanged()

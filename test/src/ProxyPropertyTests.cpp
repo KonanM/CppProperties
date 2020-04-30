@@ -106,4 +106,21 @@ TEST(CppPropertiesTest, makeProxyProperty_matchString_findHello)
 	ASSERT_TRUE(root.getProperty(StringContainsHelloPD));
 }
 
+TEST(CppPropertiesTest, makeProxyProperty_copyContainer_copiedCorrectly)
+{
+	ps::PropertyContainer root;
+	auto findString = [matchString = "Hello"](const std::string& source)
+	{
+		return source.find(matchString) != std::string::npos;
+	};
+	auto proxyP = ps::make_proxy_property(findString, StringPD);
+	root.setProperty(StringContainsHelloPD, std::move(proxyP));
+	ps::PropertyContainer copy(root);
+	copy.setProperty(StringPD, "Hello World!");
+	copy.emit();
+	auto* ppPtr = copy.getProxyProperty(StringContainsHelloPD);
+	ASSERT_TRUE(copy.getProperty(StringContainsHelloPD));
+	ASSERT_TRUE(ppPtr->get());
+}
+
 

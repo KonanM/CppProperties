@@ -7,7 +7,6 @@
 #include <typeinfo>
 #include <typeindex>
 #include <utility>
-#include <tuple>
 #include <memory>
 #include <vector>
 #include <functional>
@@ -69,9 +68,13 @@ namespace ps
 							parentPtr->setProperty(static_cast<const PropertyDescriptor<T>&>(*pd), std::make_unique<typename T::element_type>(*std::static_pointer_cast<Property<T>>(property)->get()));
 					}
 					else if (proxyProperty)
-						parentPtr->setProperty(static_cast<const PropertyDescriptor<T>&>(*pd), std::static_pointer_cast<PP>(proxyProperty));
-					else
-						assert(false);
+					{
+						if constexpr (std::is_copy_constructible_v<T>)
+						{
+							parentPtr->setProperty(static_cast<const PropertyDescriptor<T>&>(*pd), std::make_shared<PP>(*std::static_pointer_cast<PP>(proxyProperty)));
+						}
+						else throw;
+					}
 				};
                 m_property = std::move(propertyPtr);
 			}
@@ -111,7 +114,10 @@ namespace ps
 			{
 				if (!propertyData.m_isProxyProperty)
 				{
-					propertyData.m_copyTypeErased(propertyData.m_property, nullptr, this, pd);
+					if (propertyData.m_property)
+						propertyData.m_copyTypeErased(propertyData.m_property, nullptr, this, pd);
+					else
+						m_propertyData[pd].m_signal = propertyData.m_signal;
 				}
 			}
 			m_children.reserve(other.m_children.size());
@@ -128,7 +134,7 @@ namespace ps
 					//TODO: add functionality to copy also child containers type erased...
 					//I guess I really need a polymorphic_value
 					//here we have a child container that we can copy directly
-					addChildContainerInternal(std::make_shared<PropertyContainer>(*child));
+					addChildContainerInternal(child->m_copyTypeErased(child));
 				}
 			}
 		}
@@ -165,7 +171,7 @@ namespace ps
 		//this function should only be ever needed very rarely
 		//you should not need to interact with a proxy property directly
 		template<typename T>
-		[[nodiscard]] ProxyProperty<T>* getProxyProperty(const PropertyDescriptor<T>& pd) const
+		[[nodiscard]] const ProxyProperty<T>* getProxyProperty(const PropertyDescriptor<T>& pd) const
 		{
 			auto containerIt = m_toContainer.find(&pd);
 			//property has never been set -> return nullptr
@@ -454,12 +460,15 @@ namespace ps
 		}
 
 		template<typename T>
-		ProxyProperty<T>* getProxyPropertyInternal(const PropertyDescriptor<T>& pd) const
+		const ProxyProperty<T>* getProxyPropertyInternal(const PropertyDescriptor<T>& pd) const
 		{
-			auto& propertyData = m_propertyData[&pd];
+			auto it = m_propertyData.find(&pd);
+			if (it == m_propertyData.end())
+				return nullptr;
+			auto& propertyData = it->second;
 			if (!propertyData.m_property || !propertyData.m_isProxyProperty)
 				return nullptr;
-			return static_cast<ProxyProperty<T>*>(propertyData.m_property);
+			return static_cast<const ProxyProperty<T>*>(propertyData.m_property.get());
 		}
 
 		template<typename T, typename U>
